@@ -1,4 +1,5 @@
 # Binaries for programs and plugins
+.settings/
 *.exe
 *.dll
 *.so
@@ -27,3 +28,4 @@ scanning/
 .terraform/
 myvalues.yaml
 myvalues.yml
+.project

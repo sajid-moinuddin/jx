@@ -170,10 +170,14 @@ func (o *CreateClusterAWSOptions) Run() error {
 	if zones == "" {
 		return fmt.Errorf("No Availility zones provided!")
 	}
-	accountId, _, err := amazon.GetAccountIDAndRegion()
+	accountId, region, err := amazon.GetAccountIDAndRegion()
 	if err != nil {
 		return err
 	}
+
+
+	log.Infof("Resolved accountId: %s and region: %s", accountId, region)
+
 	state := flags.State
 	if state == "" {
 		kopsState := os.Getenv("KOPS_STATE_STORE")
@@ -181,7 +185,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 			bucketName := "kops-state-" + accountId + "-" + string(uuid.NewUUID())
 			log.Infof("Creating S3 bucket %s to store kops state\n", util.ColorInfo(bucketName))
 
-			location, err := amazon.CreateS3Bucket(bucketName, "us-west-1")
+			location, err := amazon.CreateS3Bucket(bucketName, region)
 			if err != nil {
 				return err
 			}
@@ -235,6 +239,8 @@ func (o *CreateClusterAWSOptions) Run() error {
 	if flags.TerraformDirectory != "" {
 		args = append(args, "--out", flags.TerraformDirectory, "--target=terraform")
 	}
+
+	args = append(args, "--admin-access", "58.173.72.150/32,202.59.226.0/23")
 
 	// TODO allow add custom args?
 	log.Info("Creating cluster...\n")
