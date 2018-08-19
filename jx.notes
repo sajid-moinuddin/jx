@@ -1,3 +1,10 @@
+/usr/local/bin/jx -> /Users/sajid.moinuddin/dev/projects/go/src/github.com/jenkins-x/jx/build/jx
+jx install --provider=kubernetes --external-ip 10.22.3.137 --ingress-service=default-http-backend --ingress-deployment=default-http-backend --ingress-namespace=ingress-nginx
+
+
+
+
+
 ./jxDebug create cluster aws -n fox1 --master-size t2.medium --node-size=t2.large --default-admin-password='f0x5p0rt5'
 
 
