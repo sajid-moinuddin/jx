@@ -21,8 +21,6 @@ REV := $(shell git rev-parse --short HEAD 2> /dev/null || echo 'unknown')
 #ROOT_PACKAGE := $(shell $(GO) list .)
 ROOT_PACKAGE := github.com/jenkins-x/jx
 GO_VERSION := $(shell $(GO) version | sed -e 's/^[^0-9.]*\([0-9.]*\).*/\1/')
-#PACKAGE_DIRS := pkg cmd
-PACKAGE_DIRS := $(shell $(GO) list ./... | grep -v /vendor/)
 PKGS := $(shell go list ./... | grep -v /vendor | grep -v generated)
 GO_DEPENDENCIES := cmd/*/*.go cmd/*/*/*.go pkg/*/*.go pkg/*/*/*.go pkg/*//*/*/*.go
 
@@ -62,7 +60,7 @@ get-test-deps:
 	@$(GO) get -u gopkg.in/matm/v1/gocov-html
 
 test:
-	@CGO_ENABLED=$(CGO_ENABLED) $(GO) test -count=1 -coverprofile=cover.out -failfast $(PACKAGE_DIRS) && echo ALL TESTS PASSED!
+	@CGO_ENABLED=$(CGO_ENABLED) $(GO) test -count=1 -coverprofile=cover.out -failfast -short -parallel 12 ./...
 
 test-report: get-test-deps test
 	@gocov convert cover.out | gocov report
@@ -70,13 +68,53 @@ test-report: get-test-deps test
 test-report-html: get-test-deps test
 	@gocov convert cover.out | gocov-html > cover.html && open cover.html
 
+test-slow:
+	@CGO_ENABLED=$(CGO_ENABLED) $(GO) test -count=1 -parallel 12 -coverprofile=cover.out ./...
+
+test-slow-report: get-test-deps test-slow
+	@gocov convert cover.out | gocov report
+
+test-slow-report-html: get-test-deps test-slow
+	@gocov convert cover.out | gocov-html > cover.html && open cover.html
+
+test-integration:
+	@CGO_ENABLED=$(CGO_ENABLED) $(GO) test -count=1 -tags=integration -coverprofile=cover.out -short ./...
+
+test-integration1:
+	@CGO_ENABLED=$(CGO_ENABLED) $(GO) test -count=1 -tags=integration -coverprofile=cover.out -short ./... -run $(TEST)
+
+test-integration-report: get-test-deps test-integration
+	@gocov convert cover.out | gocov report
+
+test-integration-report-html: get-test-deps test-integration
+	@gocov convert cover.out | gocov-html > cover.html && open cover.html
+
+test-slow-integration:
+	@CGO_ENABLED=$(CGO_ENABLED) $(GO) test -count=1 -tags=integration -coverprofile=cover.out ./...
+
+test-slow-integration-report: get-test-deps test-slow-integration
+	@gocov convert cover.out | gocov report
+
+test-slow-integration-report-html: get-test-deps test-slow-integration
+	@gocov convert cover.out | gocov-html > cover.html && open cover.html
+
 docker-test:
-	docker run --rm -v $(shell pwd):/go/src/github.com/jenkins-x/jx golang:1.10.3 sh -c "cd /go/src/github.com/jenkins-x/jx && make test"
+	docker run --rm -v $(shell pwd):/go/src/github.com/jenkins-x/jx golang:1.11 sh -c "rm /usr/bin/git && cd /go/src/github.com/jenkins-x/jx && make test"
+
+docker-test-slow:
+	docker run --rm -v $(shell pwd):/go/src/github.com/jenkins-x/jx golang:1.11 sh -c "rm /usr/bin/git && cd /go/src/github.com/jenkins-x/jx && make test-slow"
+
+# EASY WAY TO TEST IF YOUR TEST SHOULD BE A UNIT OR INTEGRATION TEST
+docker-test-integration:
+	docker run --rm -v $(shell pwd):/go/src/github.com/jenkins-x/jx golang:1.11 sh -c "rm /usr/bin/git && cd /go/src/github.com/jenkins-x/jx && make test-integration"
+
+# EASY WAY TO TEST IF YOUR SLOW TEST SHOULD BE A UNIT OR INTEGRATION TEST
+docker-test-slow-integration:
+	docker run --rm -v $(shell pwd):/go/src/github.com/jenkins-x/jx golang:1.11 sh -c "rm /usr/bin/git && cd /go/src/github.com/jenkins-x/jx && make test-slow-integration"
 
 #	CGO_ENABLED=$(CGO_ENABLED) $(GO) test github.com/jenkins-x/jx/cmds
-
 test1:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) test $(PACKAGE_DIRS) -test.v -run $(TEST) && echo TEST PASSED!
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) test ./... -test.v -run $(TEST)
 
 testbin:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO) test -c github.com/jenkins-x/jx/pkg/jx/cmd -o build/jx-test
@@ -84,13 +122,19 @@ testbin:
 debugtest1: testbin
 	cd pkg/jx/cmd && dlv --listen=:2345 --headless=true --api-version=2 exec ../../../build/jx-test -- -test.run $(TEST)
 
+inttestbin:
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) test -tags=integration -c github.com/jenkins-x/jx/pkg/jx/cmd -o build/jx-inttest
+
+debuginttest1: inttestbin
+	cd pkg/jx/cmd && dlv --listen=:2345 --headless=true --api-version=2 exec ../../../build/jx-inttest -- -test.run $(TEST)
+
 full: $(PKGS)
 
 install: $(GO_DEPENDENCIES) version
 	GOBIN=${GOPATH}/bin $(GO) install $(BUILDFLAGS) cmd/jx/jx.go
 
 fmt:
-	@FORMATTED=`$(GO) fmt $(PACKAGE_DIRS)`
+	@FORMATTED=`$(GO) fmt ./...`
 	@([[ ! -z "$(FORMATTED)" ]] && printf "Fixed unformatted files:\n$(FORMATTED)") || true
 
 arm: version
@@ -135,7 +179,6 @@ release: check
 	updatebot push-version --kind docker JX_VERSION $(VERSION)
 	updatebot push-regex -r "\s*release = \"(.*)\"" -v $(VERSION) config.toml
 	updatebot push-regex -r "JX_VERSION=(.*)" -v $(VERSION) install-jx.sh
-	updatebot update-loop
 
 	echo "Updating the JX CLI reference docs"
 	git clone https://github.com/jenkins-x/jx-docs.git
@@ -147,7 +190,8 @@ release: check
 		git push origin
 		
 	##### overlayfs2 issue on gke: https://stackoverflow.com/questions/48673513/google-kubernetes-engine-errimagepull-too-many-links ######
-	docker system prune -a -f
+	## NOTE: -a flag seems to intermittently break releases. It only prunes inactive containers so this could point to another issue. 
+	docker system prune -f
 	#####
 
 clean:
@@ -169,27 +213,26 @@ docker-maven: linux Dockerfile.builder-maven
 docker-base: linux
 	docker build -t rawlingsj/builder-base:dev16 . -f Dockerfile.builder-base
 
-docker-dev: build linux
+docker-pull:
 	docker images | grep -v REPOSITORY | awk '{print $$1}' | uniq -u | grep jenkinsxio | awk '{print $$1":latest"}' | xargs -L1 docker pull
+
+docker-build-and-push:
 	docker build --no-cache -t $(DOCKER_HUB_USER)/jx:dev .
 	docker push $(DOCKER_HUB_USER)/jx:dev
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-base:dev -f Dockerfile.builder-base .
 	docker push $(DOCKER_HUB_USER)/builder-base:dev
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-maven:dev -f Dockerfile.builder-maven .
 	docker push $(DOCKER_HUB_USER)/builder-maven:dev
-
-docker-dev-all: build linux
-	docker images | grep -v REPOSITORY | awk '{print $$1}' | uniq -u | grep jenkinsxio | awk '{print $$1":latest"}' | xargs -L1 docker pull
-	docker build --no-cache -t $(DOCKER_HUB_USER)/jx:dev .
-	docker push $(DOCKER_HUB_USER)/jx:dev
-	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-base:dev -f Dockerfile.builder-base .
-	docker push $(DOCKER_HUB_USER)/builder-base:dev
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-go:dev -f Dockerfile.builder-go .
 	docker push $(DOCKER_HUB_USER)/builder-go:dev
+
+docker-dev: build linux docker-pull docker-build-and-push
+
+docker-dev-no-pull: build linux docker-build-and-push
+
+docker-dev-all: build linux docker-pull docker-build-and-push
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-gradle:dev -f Dockerfile.builder-gradle .
 	docker push $(DOCKER_HUB_USER)/builder-gradle:dev
-	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-maven:dev -f Dockerfile.builder-maven .
-	docker push $(DOCKER_HUB_USER)/builder-maven:dev
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-rust:dev -f Dockerfile.builder-rust .
 	docker push $(DOCKER_HUB_USER)/builder-rust:dev
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-scala:dev -f Dockerfile.builder-scala .
@@ -206,6 +249,10 @@ docker-dev-all: build linux
 	docker push $(DOCKER_HUB_USER)/builder-python2:dev
 	docker build --no-cache -t $(DOCKER_HUB_USER)/builder-ruby:dev -f Dockerfile.builder-ruby .
 	docker push $(DOCKER_HUB_USER)/builder-ruby:dev
+
+# Generate go code using generate directives in files. Mocks etc...
+generate:
+	$(GO) generate ./...
 
 .PHONY: release clean arm
 

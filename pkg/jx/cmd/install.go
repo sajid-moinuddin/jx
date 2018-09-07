@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +18,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/cloud/amazon"
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/gits"
+	"github.com/jenkins-x/jx/pkg/helm"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -26,6 +28,7 @@ import (
 	"gopkg.in/AlecAivazis/survey.v1"
 	"gopkg.in/src-d/go-git.v4"
 	core_v1 "k8s.io/api/core/v1"
+	kubev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -79,6 +82,8 @@ const (
 	AdminSecretsFile      = "adminSecrets.yaml"
 	ExtraValuesFile       = "extraValues.yaml"
 	JXInstallConfig       = "jx-install-config"
+	CloudEnvValuesFile    = "myvalues.yaml"
+	CloudEnvSecretsFile   = "secrets.yaml"
 	defaultInstallTimeout = "6000"
 )
 
@@ -222,7 +227,7 @@ func (options *InstallOptions) Run() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create the kube client")
 	}
-	options.kubeClient = client
+	options.KubeClientCached = client
 
 	initOpts := &options.InitOptions
 	helmBinary := initOpts.HelmBinary()
@@ -251,7 +256,7 @@ func (options *InstallOptions) Run() error {
 		return fmt.Errorf("Failed to ensure the namespace %s is created: %s\nIs this an RBAC issue on your cluster?", ns, err)
 	}
 
-	err = options.runCommand("kubectl", "config", "set-context", context, "--namespace", ns)
+	err = options.RunCommand("kubectl", "config", "set-context", context, "--namespace", ns)
 	if err != nil {
 		return errors.Wrapf(err, "failed to set the context '%s' in kube configuration", context)
 	}
@@ -379,6 +384,9 @@ func (options *InstallOptions) Run() error {
 			helmConfig.Jenkins.Servers.Global.EnvVars = map[string]string{}
 		}
 		helmConfig.Jenkins.Servers.Global.EnvVars["DOCKER_REGISTRY"] = dockerRegistry
+		if isOpenShiftProvider(options.Flags.Provider) && dockerRegistry == "docker-registry.default.svc:5000" {
+			options.enableOpenShiftRegistryPermissions(ns, helmConfig, dockerRegistry)
+		}
 	}
 
 	// lets add any GitHub Enterprise servers
@@ -404,8 +412,9 @@ func (options *InstallOptions) Run() error {
 
 	// run  helm install setting the token and domain values
 	if options.Flags.Provider == "" {
-		return fmt.Errorf("No kubernetes provider found to match cloud-environment with")
+		return fmt.Errorf("no kubernetes provider found to match cloud-environment with")
 	}
+
 	makefileDir := filepath.Join(wrkDir, fmt.Sprintf("env-%s", strings.ToLower(options.Flags.Provider)))
 	if _, err := os.Stat(wrkDir); os.IsNotExist(err) {
 		return fmt.Errorf("cloud environment dir %s not found", makefileDir)
@@ -446,7 +455,7 @@ func (options *InstallOptions) Run() error {
 			Name: JXInstallConfig,
 		},
 	}
-	secretResources := options.kubeClient.CoreV1().Secrets(ns)
+	secretResources := options.KubeClientCached.CoreV1().Secrets(ns)
 	oldSecret, err := secretResources.Get(JXInstallConfig, metav1.GetOptions{})
 	if oldSecret == nil || err != nil {
 		_, err = secretResources.Create(jxSecrets)
@@ -478,7 +487,7 @@ func (options *InstallOptions) Run() error {
 
 	version := options.Flags.Version
 	if version == "" {
-		version, err = loadVersionFromCloudEnvironmentsDir(wrkDir)
+		version, err = LoadVersionFromCloudEnvironmentsDir(wrkDir)
 		if err != nil {
 			return errors.Wrap(err, "failed to load version from cloud environments dir")
 		}
@@ -489,32 +498,12 @@ func (options *InstallOptions) Run() error {
 		return errors.Wrap(err, "failed to update the helm repo")
 	}
 
-	valueFiles := []string{"./myvalues.yaml", "./secrets.yaml", secretsFileName, adminSecretsFileName, configFileName}
-
-	// Overwrite the values with the content of myvaules.yaml files from the current folder if exists, otherwise
-	// from ~/.jx folder also only if is present
-	curDir, err := os.Getwd()
+	cloudEnvironmentValuesLocation := filepath.Join(makefileDir, CloudEnvValuesFile)
+	cloudEnvironmentSecretsLocation := filepath.Join(makefileDir, CloudEnvSecretsFile)
+	valueFiles := []string{cloudEnvironmentValuesLocation, cloudEnvironmentSecretsLocation, secretsFileName, adminSecretsFileName, configFileName}
+	valueFiles, err = helm.AppendMyValues(valueFiles)
 	if err != nil {
-		return errors.Wrap(err, "failed to get the current working directory")
-	}
-	myValuesFile := filepath.Join(curDir, "myvalues.yaml")
-	exists, err := util.FileExists(myValuesFile)
-	if err != nil {
-		return errors.Wrap(err, "failed to check if the myvaules.yaml file exists in the current directory")
-	}
-	if exists {
-		valueFiles = append(valueFiles, myValuesFile)
-		log.Infof("Using local value overrides file %s\n", util.ColorInfo(myValuesFile))
-	} else {
-		myValuesFile = filepath.Join(dir, "myvalues.yaml")
-		exists, err = util.FileExists(myValuesFile)
-		if err != nil {
-			return errors.Wrap(err, "failed to check if the myvaules.yaml file exists in the .jx directory")
-		}
-		if exists {
-			valueFiles = append(valueFiles, myValuesFile)
-			log.Infof("Using local value overrides file %s\n", util.ColorInfo(myValuesFile))
-		}
+		return errors.Wrap(err, "failed to append the myvalues.yaml file")
 	}
 
 	options.currentNamespace = ns
@@ -533,6 +522,9 @@ func (options *InstallOptions) Run() error {
 	options.Helm().SetCWD(makefileDir)
 	jxChart := "jenkins-x/jenkins-x-platform"
 	jxRelName := "jenkins-x"
+
+	log.Infof("Installing jx into namespace %s\n", util.ColorInfo(ns))
+
 	if !options.Flags.InstallOnly {
 		err = options.Helm().UpgradeChart(jxChart, jxRelName, ns, &version, true, &timeoutInt, false, false, nil, valueFiles)
 	} else {
@@ -564,7 +556,7 @@ func (options *InstallOptions) Run() error {
 		Exposer: exposeController.Config.Exposer,
 	}
 	// save details to a configmap
-	err = kube.SaveIngressConfig(options.kubeClient, ns, ic)
+	err = kube.SaveIngressConfig(options.KubeClientCached, ns, ic)
 	if err != nil {
 		return err
 	}
@@ -651,8 +643,7 @@ func (options *InstallOptions) Run() error {
 				options.CreateEnvOptions.BatchMode = options.BatchMode
 			}
 			options.CreateEnvOptions.Prow = options.Flags.Prow
-			options.CreateEnvOptions.GitRepositoryOptions.ServerURL = options.GitRepositoryOptions.ServerURL
-			options.CreateEnvOptions.GitRepositoryOptions.Private = options.GitRepositoryOptions.Private
+			options.CreateEnvOptions.GitRepositoryOptions = options.GitRepositoryOptions
 
 			err = options.CreateEnvOptions.Run()
 			if err != nil {
@@ -687,6 +678,24 @@ func (options *InstallOptions) Run() error {
 		}
 	}
 
+	if options.Flags.Provider == EKS {
+		kubeClient, currentNs, err := options.KubeClient()
+		if err != nil {
+			return err
+		}
+		err = kubeClient.CoreV1().Secrets(currentNs).Delete("jenkins-docker-cfg", &metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+		_, err = kubeClient.CoreV1().Secrets(currentNs).Create(&kubev1.Secret{
+			Type:       kubev1.SecretTypeOpaque,
+			StringData: map[string]string{"config.json": `{"credsStore": "ecr-login"}`},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "jenkins-docker-cfg",
+			},
+		})
+	}
+
 	log.Success("\nJenkins X installation completed successfully\n")
 
 	options.logAdminPassword()
@@ -712,20 +721,43 @@ func isOpenShiftProvider(provider string) bool {
 
 func (o *InstallOptions) enableOpenShiftSCC(ns string) error {
 	log.Infof("Enabling anyui for the Jenkins service account in namespace %s\n", ns)
-	err := o.runCommand("oc", "adm", "policy", "add-scc-to-user", "anyuid", "system:serviceaccount:"+ns+":jenkins")
+	err := o.RunCommand("oc", "adm", "policy", "add-scc-to-user", "anyuid", "system:serviceaccount:"+ns+":jenkins")
 	if err != nil {
 		return err
 	}
-	err = o.runCommand("oc", "adm", "policy", "add-scc-to-user", "hostaccess", "system:serviceaccount:"+ns+":jenkins")
+	err = o.RunCommand("oc", "adm", "policy", "add-scc-to-user", "hostaccess", "system:serviceaccount:"+ns+":jenkins")
 	if err != nil {
 		return err
 	}
-	err = o.runCommand("oc", "adm", "policy", "add-scc-to-user", "privileged", "system:serviceaccount:"+ns+":jenkins")
+	err = o.RunCommand("oc", "adm", "policy", "add-scc-to-user", "privileged", "system:serviceaccount:"+ns+":jenkins")
 	if err != nil {
 		return err
 	}
 	// try fix monocular
-	return o.runCommand("oc", "adm", "policy", "add-scc-to-user", "anyuid", "system:serviceaccount:"+ns+":default")
+	return o.RunCommand("oc", "adm", "policy", "add-scc-to-user", "anyuid", "system:serviceaccount:"+ns+":default")
+}
+
+func (o *InstallOptions) enableOpenShiftRegistryPermissions(ns string, helmConfig *config.HelmValuesConfig, dockerRegistry string) error {
+	log.Infof("Enabling permissions for Openshift registry in namespace %s\n", ns)
+	// Open the registry so any authenticated user can pull images from the jx namespace
+	err := o.RunCommand("oc", "adm", "policy", "add-role-to-group", "system:image-puller", "system:authenticated", "-n", ns)
+	if err != nil {
+		return err
+	}
+	err = o.ensureServiceAccount(ns, "jenkins-x-registry")
+	if err != nil {
+		return err
+	}
+	err = o.RunCommand("oc", "adm", "policy", "add-cluster-role-to-user", "registry-admin", "system:serviceaccount:"+ns+":jenkins-x-registry")
+	if err != nil {
+		return err
+	}
+	registryToken, err := o.getCommandOutput("", "oc", "serviceaccounts", "get-token", "jenkins-x-registry", "-n", ns)
+	if err != nil {
+		return err
+	}
+	helmConfig.PipelineSecrets.DockerConfig = `{"auths": {"` + dockerRegistry + `": {"auth": "` + base64.StdEncoding.EncodeToString([]byte("serviceaccount:"+registryToken)) + `"}}}`
+	return nil
 }
 
 func (options *InstallOptions) logAdminPassword() {
@@ -741,7 +773,8 @@ func (options *InstallOptions) logAdminPassword() {
 	log.Infof(astrix, fmt.Sprintf("Your admin password is: %s", util.ColorInfo(options.AdminSecretsService.Flags.DefaultAdminPassword)))
 }
 
-func loadVersionFromCloudEnvironmentsDir(wrkDir string) (string, error) {
+// LoadVersionFromCloudEnvironmentsDir loads a version from the cloud environments directory
+func LoadVersionFromCloudEnvironmentsDir(wrkDir string) (string, error) {
 	version := ""
 	path := filepath.Join(wrkDir, "Makefile")
 	exists, err := util.FileExists(path)
@@ -774,7 +807,11 @@ func loadVersionFromCloudEnvironmentsDir(wrkDir string) (string, error) {
 
 // clones the jenkins-x cloud-environments repo to a local working dir
 func (o *InstallOptions) cloneJXCloudEnvironmentsRepo() (string, error) {
-	wrkDir := filepath.Join(util.HomeDir(), ".jx", "cloud-environments")
+	configDir, err := util.ConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("error determining config dir %v", err)
+	}
+	wrkDir := filepath.Join(configDir, "cloud-environments")
 	log.Infof("Cloning the Jenkins X cloud environments repo to %s\n", wrkDir)
 	if o.Flags.CloudEnvRepository == "" {
 		return wrkDir, fmt.Errorf("No cloud environment git URL")
@@ -788,7 +825,7 @@ func (o *InstallOptions) cloneJXCloudEnvironmentsRepo() (string, error) {
 
 		return wrkDir, util.CopyDir(currentDir, wrkDir, true)
 	}
-	_, err := git.PlainClone(wrkDir, false, &git.CloneOptions{
+	_, err = git.PlainClone(wrkDir, false, &git.CloneOptions{
 		URL:           o.Flags.CloudEnvRepository,
 		ReferenceName: "refs/heads/master",
 		SingleBranch:  true,
@@ -946,7 +983,8 @@ func (o *InstallOptions) getGitUser(message string) (*auth.UserAuth, error) {
 	var server *auth.AuthServer
 	gitProvider := o.GitRepositoryOptions.ServerURL
 	if gitProvider != "" {
-		server = config.GetOrCreateServer(gitProvider)
+		kind := gits.SaasGitKind(gitProvider)
+		server = config.GetOrCreateServerName(gitProvider, "", kind)
 	} else {
 		server, err = config.PickServer("Which git provider?", o.BatchMode)
 		if err != nil {
@@ -958,7 +996,7 @@ func (o *InstallOptions) getGitUser(message string) (*auth.UserAuth, error) {
 	if message == "" {
 		message = fmt.Sprintf("%s username for CI/CD pipelines:", server.Label())
 	}
-	userAuth, err = config.PickServerUserAuth(server, message, o.BatchMode)
+	userAuth, err = config.PickServerUserAuth(server, message, o.BatchMode, "")
 	if err != nil {
 		return userAuth, err
 	}
@@ -1083,6 +1121,9 @@ func (o *InstallOptions) dockerRegistryValue() (string, error) {
 	}
 	if o.Flags.Provider == AWS || o.Flags.Provider == EKS {
 		return amazon.GetContainerRegistryHost()
+	}
+	if o.Flags.Provider == OPENSHIFT || o.Flags.Provider == MINISHIFT {
+		return "docker-registry.default.svc:5000", nil
 	}
 	return "", nil
 }

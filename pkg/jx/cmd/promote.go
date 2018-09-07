@@ -53,11 +53,15 @@ type PromoteOptions struct {
 	AllAutomatic        bool
 	NoMergePullRequest  bool
 	NoPoll              bool
+	NoWaitAfterMerge    bool
 	IgnoreLocalFiles    bool
 	Timeout             string
 	PullRequestPollTime string
 	Filter              string
 	Alias               string
+
+	// allow git to be configured externally before a PR is created
+	ConfigureGitCallback ConfigureGitFolderFn
 
 	// for testing
 	FakePullRequests CreateEnvPullRequestFn
@@ -160,6 +164,7 @@ func (options *PromoteOptions) addPromoteOptions(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&options.NoHelmUpdate, "no-helm-update", "", false, "Allows the 'helm repo update' command if you are sure your local helm cache is up to date with the version you wish to promote")
 	cmd.Flags().BoolVarP(&options.NoMergePullRequest, "no-merge", "", false, "Disables automatic merge of promote Pull Requests")
 	cmd.Flags().BoolVarP(&options.NoPoll, "no-poll", "", false, "Disables polling for Pull Request or Pipeline status")
+	cmd.Flags().BoolVarP(&options.NoWaitAfterMerge, "no-wait", "", false, "Disables waiting for completing promotion after the Pull request is merged")
 	cmd.Flags().BoolVarP(&options.IgnoreLocalFiles, "ignore-local-file", "", false, "Ignores the local file system when deducing the git repository")
 }
 
@@ -394,6 +399,9 @@ func (o *PromoteOptions) Promote(targetNS string, env *v1.Environment, warnIfAut
 					return nil
 				}
 				err = promoteKey.OnPromotePullRequest(o.Activities, startPromotePR)
+				if err != nil {
+					log.Warnf("Failed to update PipelineActivity: %s\n", err)
+				}
 				// lets sleep a little before we try poll for the PR status
 				time.Sleep(waitAfterPullRequestCreated)
 			}
@@ -465,7 +473,7 @@ func (o *PromoteOptions) PromoteViaPullRequest(env *v1.Environment, releaseInfo 
 		releaseInfo.PullRequestInfo = info
 		return err
 	} else {
-		info, err := o.createEnvironmentPullRequest(env, modifyRequirementsFn, branchNameText, title, message, releaseInfo.PullRequestInfo)
+		info, err := o.createEnvironmentPullRequest(env, modifyRequirementsFn, branchNameText, title, message, releaseInfo.PullRequestInfo, o.ConfigureGitCallback)
 		releaseInfo.PullRequestInfo = info
 		return err
 	}
@@ -582,6 +590,11 @@ func (o *PromoteOptions) waitForGitOpsPullRequest(ns string, env *v1.Environment
 							return nil
 						}
 						promoteKey.OnPromotePullRequest(o.Activities, mergedPR)
+
+						if o.NoWaitAfterMerge {
+							log.Infof("Pull requests are merged, No wait on promotion to complete")
+							return err
+						}
 					}
 
 					promoteKey.OnPromoteUpdate(o.Activities, kube.StartPromotionUpdate)
@@ -783,7 +796,7 @@ func (o *PromoteOptions) createPromoteKey(env *v1.Environment) *kube.PromoteStep
 		}
 	}
 	if pipeline == "" {
-		pipeline, build = o.getPipelineName(gitInfo, pipeline, build)
+		pipeline, build = o.getPipelineName(gitInfo, pipeline, build, o.Application)
 	}
 	if pipeline != "" && build == "" {
 		log.Warnf("No $BUILD_NUMBER environment variable found so cannot record promotion activities into the PipelineActivity resources in kubernetes\n")
@@ -868,12 +881,12 @@ func (o *CommonOptions) getLatestPipelineBuildByCRD(pipeline string) (string, er
 	return "1", nil
 }
 
-func (o *CommonOptions) getPipelineName(gitInfo *gits.GitRepositoryInfo, pipeline string, build string) (string, string) {
+func (o *CommonOptions) getPipelineName(gitInfo *gits.GitRepositoryInfo, pipeline string, build string, appName string) (string, string) {
 	if pipeline == "" {
-		pipeline = os.Getenv("JOB_NAME")
+		pipeline = o.getJobName()
 	}
 	if build == "" {
-		build = os.Getenv("BUILD_NUMBER")
+		build = o.getBuildNumber()
 	}
 	if gitInfo != nil && pipeline == "" {
 		// lets default the pipeline name from the git repo
@@ -885,21 +898,38 @@ func (o *CommonOptions) getPipelineName(gitInfo *gits.GitRepositoryInfo, pipelin
 			branch = "master"
 		}
 		pipeline = util.UrlJoin(gitInfo.Organisation, gitInfo.Name, branch)
-		if build == "" {
-			// lets validate and determine the current active pipeline branch
-			p, b, err := o.getLatestPipelineBuild(pipeline)
-			if err != nil {
-				log.Warnf("Failed to try detect the current Jenkins pipeline for %s due to %s\n", pipeline, err)
-				pipeline = ""
-			} else {
-				pipeline = p
-				build = b
+	}
+	if pipeline == "" && appName != "" {
+		suffix := appName + "/master"
+
+		// lets try deduce the pipeline name via the app name
+		jxClient, ns, err := o.JXClientAndDevNamespace()
+		if err == nil {
+			pipelineList, err := jxClient.JenkinsV1().PipelineActivities(ns).List(metav1.ListOptions{})
+			if err == nil {
+				for _, pipelineResource := range pipelineList.Items {
+					pipelineName := pipelineResource.Spec.Pipeline
+					if strings.HasSuffix(pipelineName, suffix) {
+						pipeline = pipelineName
+						break
+					}
+				}
 			}
 		}
 	}
 	if pipeline == "" {
 		// lets try find
 		log.Warnf("No $JOB_NAME environment variable found so cannot record promotion activities into the PipelineActivity resources in kubernetes\n")
+	} else if build == "" {
+		// lets validate and determine the current active pipeline branch
+		p, b, err := o.getLatestPipelineBuild(pipeline)
+		if err != nil {
+			log.Warnf("Failed to try detect the current Jenkins pipeline for %s due to %s\n", pipeline, err)
+			build = "1"
+		} else {
+			pipeline = p
+			build = b
+		}
 	}
 	return pipeline, build
 }

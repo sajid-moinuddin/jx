@@ -15,33 +15,38 @@ import (
 func (o *CommonOptions) CreateGitAuthConfigServiceDryRun(dryRun bool) (auth.AuthConfigService, error) {
 	if dryRun {
 		fileName := GitAuthConfigFile
-		return o.createGitAuthConfigServiceFromSecrets(fileName, nil, false)
+		return o.CreateGitAuthConfigServiceFromSecrets(fileName, nil, false)
 	}
 	return o.CreateGitAuthConfigService()
 }
 
 func (o *CommonOptions) CreateGitAuthConfigService() (auth.AuthConfigService, error) {
-	secrets, err := o.LoadPipelineSecrets(kube.ValueKindGit, "")
-	if err != nil {
+	var secrets *corev1.SecretList
+	var err error
+	if !o.SkipAuthSecretsMerge {
+		secrets, err = o.LoadPipelineSecrets(kube.ValueKindGit, "")
+		if err != nil {
 
-		kubeConfig, _, configLoadErr := kube.LoadConfig()
-		if configLoadErr != nil {
-			log.Warnf("WARNING: Could not load config: %s", configLoadErr)
+			kubeConfig, _, configLoadErr := kube.LoadConfig()
+			if configLoadErr != nil {
+				log.Warnf("WARNING: Could not load config: %s", configLoadErr)
+			}
+
+			ns := kube.CurrentNamespace(kubeConfig)
+			if ns == "" {
+				log.Warnf("WARNING: Could not get the current namespace")
+			}
+
+			log.Warnf("WARNING: The current user cannot query secrets in the namespace %s: %s\n", ns, err)
 		}
-
-		ns := kube.CurrentNamespace(kubeConfig)
-		if ns == "" {
-			log.Warnf("WARNING: Could not get the current namespace")
-		}
-
-		log.Warnf("WARNING: The current user cannot query secrets in the namespace %s: %s\n", ns, err)
 	}
 
 	fileName := GitAuthConfigFile
-	return o.createGitAuthConfigServiceFromSecrets(fileName, secrets, o.Factory.IsInCDPIpeline())
+	return o.CreateGitAuthConfigServiceFromSecrets(fileName, secrets, o.Factory.IsInCDPIpeline())
 }
 
-func (o *CommonOptions) createGitAuthConfigServiceFromSecrets(fileName string, secrets *corev1.SecretList, isCDPipeline bool) (auth.AuthConfigService, error) {
+// CreateGitAuthConfigServiceFromSecrets Creates a git auth config service from secrets
+func (o *CommonOptions) CreateGitAuthConfigServiceFromSecrets(fileName string, secrets *corev1.SecretList, isCDPipeline bool) (auth.AuthConfigService, error) {
 	authConfigSvc, err := o.Factory.CreateAuthConfigService(fileName)
 	if err != nil {
 		return authConfigSvc, err
@@ -63,6 +68,7 @@ func (o *CommonOptions) createGitAuthConfigServiceFromSecrets(fileName string, s
 	if len(config.Servers) == 0 {
 		// if in cluster then there's no user configfile, so check for env vars first
 		userAuth := auth.CreateAuthUserFromEnvironment("GIT")
+
 		if !userAuth.IsInvalid() {
 			// if no config file is being used lets grab the git server from the current directory
 			server, err := o.Git().Server("")

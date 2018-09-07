@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cenkalti/backoff"
 	"github.com/jenkins-x/jx/pkg/cloud/amazon"
 	"github.com/pkg/errors"
 
@@ -27,9 +28,11 @@ import (
 	"gopkg.in/AlecAivazis/survey.v1"
 	gitcfg "gopkg.in/src-d/go-git.v4/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	//_ "github.com/Azure/draft/pkg/linguist"
-	"github.com/denormal/go-gitignore"
 	"time"
+
+	"github.com/denormal/go-gitignore"
 )
 
 const (
@@ -37,7 +40,7 @@ const (
 	PlaceHolderGitProvider = "REPLACE_ME_GIT_PROVIDER"
 	PlaceHolderOrg         = "REPLACE_ME_ORG"
 
-	jenkinsfileBackupSuffix = ".backup"
+	JenkinsfileBackupSuffix = ".backup"
 
 	minimumMavenDeployVersion = "2.8.2"
 
@@ -228,18 +231,17 @@ func (o *ImportOptions) Run() error {
 				return err
 			}
 		}
-		o.Debugf("Found git server %s %s\n", server.URL, server.Kind)
-		userAuth, err = config.PickServerUserAuth(server, "git user name:", o.BatchMode)
+		// Get the org in case there is more than one user auth on the server and batchMode is true
+		org := o.getOrganisationOrCurrentUser()
+		userAuth, err = config.PickServerUserAuth(server, "git user name:", o.BatchMode, org)
 		if err != nil {
 			return err
 		}
-		updated := false
 		if server.Kind == "" {
 			server.Kind, err = o.GitServerHostURLKind(server.URL)
 			if err != nil {
 				return err
 			}
-			updated = true
 		}
 		if userAuth.IsInvalid() {
 			f := func(username string) error {
@@ -251,23 +253,14 @@ func (o *ImportOptions) Run() error {
 				return err
 			}
 
-			o.Credentials, err = o.updatePipelineGitCredentialsSecret(server, userAuth)
-			if err != nil {
-				return err
-			}
-
-			updated = true
-
 			// TODO lets verify the auth works?
 			if userAuth.IsInvalid() {
-				return fmt.Errorf("You did not properly define the user authentication!")
+				return fmt.Errorf("Authentication has failed for user %v. Please check the user's access credentials and try again.\n", userAuth.Username)
 			}
 		}
-		if updated {
-			err = authConfigSvc.SaveUserAuth(server.URL, userAuth)
-			if err != nil {
-				return fmt.Errorf("Failed to store git auth configuration %s", err)
-			}
+		err = authConfigSvc.SaveUserAuth(server.URL, userAuth)
+		if err != nil {
+			return fmt.Errorf("Failed to store git auth configuration %s", err)
 		}
 
 		o.GitServer = server
@@ -504,7 +497,7 @@ func (o *ImportOptions) DraftCreate() error {
 	jenkinsfileBackup := ""
 	if jenkinsfileExists && o.InitialisedGit && !o.DisableJenkinsfileCheck {
 		// lets copy the old Jenkinsfile in case we overwrite it
-		jenkinsfileBackup = jenkinsfile + jenkinsfileBackupSuffix
+		jenkinsfileBackup = jenkinsfile + JenkinsfileBackupSuffix
 		err = util.RenameFile(jenkinsfile, jenkinsfileBackup)
 		if err != nil {
 			return fmt.Errorf("Failed to rename old Jenkinsfile: %s", err)
@@ -512,7 +505,7 @@ func (o *ImportOptions) DraftCreate() error {
 	} else if withRename {
 		defaultJenkinsfileExists, err := util.FileExists(defaultJenkinsfile)
 		if defaultJenkinsfileExists && o.InitialisedGit && !o.DisableJenkinsfileCheck {
-			jenkinsfileBackup = defaultJenkinsfile + jenkinsfileBackupSuffix
+			jenkinsfileBackup = defaultJenkinsfile + JenkinsfileBackupSuffix
 			err = util.RenameFile(defaultJenkinsfile, jenkinsfileBackup)
 			if err != nil {
 				return fmt.Errorf("Failed to rename old Jenkinsfile: %s", err)
@@ -585,7 +578,7 @@ func (o *ImportOptions) DraftCreate() error {
 	}
 
 	org := o.getOrganisationOrCurrentUser()
-	err = o.replacePlaceholders(gitServerName, org)
+	err = o.ReplacePlaceholders(gitServerName, org)
 	if err != nil {
 		return err
 	}
@@ -678,6 +671,51 @@ func (o *ImportOptions) CreateNewRemoteRepository() error {
 		return err
 	}
 	log.Infof("Pushed git repository to %s\n\n", util.ColorInfo(repo.HTMLURL))
+
+	// If the user creating the repo is not the pipeline user, add the pipeline user as a contributor to the repo
+	config := authConfigSvc.Config()
+	if config.PipeLineUsername != o.GitUserAuth.Username && config.CurrentServer == config.PipeLineServer {
+		// Make the invitation
+		err := o.GitProvider.AddCollaborator(config.PipeLineUsername, details.RepoName)
+		if err != nil {
+			return err
+		}
+
+		// Create a new provider for the pipeline user
+		pipelineUserAuth := config.FindUserAuth(config.CurrentServer, config.PipeLineUsername)
+		pipelineServerAuth := config.GetServer(config.CurrentServer)
+		pipelineUserProvider, err := gits.CreateProvider(pipelineServerAuth, pipelineUserAuth, o.Git())
+		if err != nil {
+			return err
+		}
+
+		// Get all invitations for the pipeline user
+		// Wrapped in retry to not immediately fail the quickstart creation if APIs are flaky.
+		f := func() error {
+			invites, _, err := pipelineUserProvider.ListInvitations()
+			if err != nil {
+				return err
+			}
+			for _, x := range invites {
+				// Accept all invitations for the pipeline user
+				_, err = pipelineUserProvider.AcceptInvitation(*x.ID)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		exponentialBackOff := backoff.NewExponentialBackOff()
+		timeout := 20 * time.Second
+		exponentialBackOff.MaxElapsedTime = timeout
+		exponentialBackOff.Reset()
+		err = backoff.Retry(f, exponentialBackOff)
+		if err != nil {
+			return err
+		}
+
+	}
+
 	return nil
 }
 
@@ -917,7 +955,8 @@ func (o *ImportOptions) ensureDockerRepositoryExists() error {
 	return nil
 }
 
-func (o *ImportOptions) replacePlaceholders(gitServerName, gitOrg string) error {
+// ReplacePlaceholders replaces git server name and git org placeholders
+func (o *ImportOptions) ReplacePlaceholders(gitServerName, gitOrg string) error {
 	gitOrg = kube.ToValidName(strings.ToLower(gitOrg))
 	log.Infof("replacing placeholders in directory %s\n", o.Dir)
 	log.Infof("app name: %s, git server: %s, org: %s\n", o.AppName, gitServerName, gitOrg)
@@ -1013,7 +1052,7 @@ func (o *ImportOptions) checkChartmuseumCredentialExists() error {
 	_, err := o.Jenkins.GetCredential(name)
 
 	if err != nil {
-		secret, err := o.kubeClient.CoreV1().Secrets(o.currentNamespace).Get(name, metav1.GetOptions{})
+		secret, err := o.KubeClientCached.CoreV1().Secrets(o.currentNamespace).Get(name, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("error getting %s secret %v", name, err)
 		}

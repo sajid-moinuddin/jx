@@ -5,14 +5,13 @@ import (
 
 	"fmt"
 
-	os_user "os/user"
-
 	"os"
 	"path/filepath"
 
 	"github.com/jenkins-x/jx/pkg/cloud/gke"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
+	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
 	"gopkg.in/AlecAivazis/survey.v1"
 )
@@ -129,12 +128,11 @@ func (o *UpdateClusterGKETerraformOptions) updateClusterGKETerraform() error {
 
 	serviceAccount := fmt.Sprintf("jx-%s", o.Flags.ClusterName)
 
-	user, err := os_user.Current()
+	jxHome, err := util.ConfigDir()
 	if err != nil {
 		return err
 	}
 
-	jxHome := filepath.Join(user.HomeDir, ".jx")
 	clustersHome := filepath.Join(jxHome, "clusters")
 	clusterHome := filepath.Join(clustersHome, o.Flags.ClusterName)
 	os.MkdirAll(clusterHome, os.ModePerm)
@@ -161,7 +159,7 @@ func (o *UpdateClusterGKETerraformOptions) updateClusterGKETerraform() error {
 	terraformVars := filepath.Join(terraformDir, "terraform.tfvars")
 
 	args := []string{"init", terraformDir}
-	err = o.runCommand("terraform", args...)
+	err = o.RunCommand("terraform", args...)
 	if err != nil {
 		return err
 	}

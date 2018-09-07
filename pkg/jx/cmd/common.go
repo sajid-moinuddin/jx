@@ -44,27 +44,28 @@ const (
 
 // CommonOptions contains common options and helper methods
 type CommonOptions struct {
-	Factory             Factory
-	Out                 io.Writer
-	Err                 io.Writer
-	Cmd                 *cobra.Command
-	Args                []string
-	BatchMode           bool
-	Verbose             bool
-	Headless            bool
-	NoBrew              bool
-	InstallDependencies bool
-	ServiceAccount      string
-	Username            string
+	Factory              Factory
+	Out                  io.Writer
+	Err                  io.Writer
+	Cmd                  *cobra.Command
+	Args                 []string
+	BatchMode            bool
+	Verbose              bool
+	Headless             bool
+	NoBrew               bool
+	InstallDependencies  bool
+	SkipAuthSecretsMerge bool
+	ServiceAccount       string
+	Username             string
 
 	// common cached clients
-	kubeClient          kubernetes.Interface
+	KubeClientCached    kubernetes.Interface
 	apiExtensionsClient apiextensionsclientset.Interface
 	currentNamespace    string
 	devNamespace        string
 	jxClient            versioned.Interface
 	jenkinsClient       *gojenkins.Jenkins
-	git                 gits.Gitter
+	GitClient           gits.Gitter
 	helm                helm.Helmer
 
 	Prow
@@ -115,6 +116,7 @@ func (options *CommonOptions) addCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&options.Headless, "headless", "", false, "Enable headless operation if using browser automation")
 	cmd.Flags().BoolVarP(&options.NoBrew, "no-brew", "", false, "Disables the use of brew on MacOS to install or upgrade command line dependencies")
 	cmd.Flags().BoolVarP(&options.InstallDependencies, "install-dependencies", "", false, "Should any required dependencies be installed automatically")
+	cmd.Flags().BoolVarP(&options.SkipAuthSecretsMerge, "skip-auth-secrets-merge", "", false, "Skips merging a local git auth yaml file with any pipeline secrets that are found")
 	options.Cmd = cmd
 }
 
@@ -130,16 +132,16 @@ func (o *CommonOptions) CreateApiExtensionsClient() (apiextensionsclientset.Inte
 }
 
 func (o *CommonOptions) KubeClient() (kubernetes.Interface, string, error) {
-	if o.kubeClient == nil {
+	if o.KubeClientCached == nil {
 		kubeClient, currentNs, err := o.Factory.CreateClient()
 		if err != nil {
 			return nil, "", err
 		}
-		o.kubeClient = kubeClient
+		o.KubeClientCached = kubeClient
 		o.currentNamespace = currentNs
 
 	}
-	return o.kubeClient, o.currentNamespace, nil
+	return o.KubeClientCached, o.currentNamespace, nil
 }
 
 // KubeClientAndDevNamespace returns a kube client and the development namespace
@@ -212,7 +214,7 @@ func (o *CommonOptions) JXClientAndDevNamespace() (versioned.Interface, string, 
 
 func (o *CommonOptions) JenkinsClient() (*gojenkins.Jenkins, error) {
 	if o.jenkinsClient == nil {
-		kubeClient, ns, err := o.KubeClient()
+		kubeClient, ns, err := o.KubeClientAndDevNamespace()
 		if err != nil {
 			return nil, err
 		}
@@ -236,10 +238,10 @@ func (o *CommonOptions) GetJenkinsURL() (string, error) {
 }
 
 func (o *CommonOptions) Git() gits.Gitter {
-	if o.git == nil {
-		o.git = gits.NewGitCLI()
+	if o.GitClient == nil {
+		o.GitClient = gits.NewGitCLI()
 	}
-	return o.git
+	return o.GitClient
 }
 
 func (o *CommonOptions) Helm() helm.Helmer {
@@ -638,7 +640,7 @@ func (o *CommonOptions) pickRemoteURL(config *gitcfg.Config) (string, error) {
 // get existing config from the devNamespace and run exposecontroller in the target environment
 func (o *CommonOptions) expose(devNamespace, targetNamespace, password string) error {
 
-	_, err := o.kubeClient.CoreV1().Secrets(targetNamespace).Get(kube.SecretBasicAuth, v1.GetOptions{})
+	_, err := o.KubeClientCached.CoreV1().Secrets(targetNamespace).Get(kube.SecretBasicAuth, v1.GetOptions{})
 	if err != nil {
 		data := make(map[string][]byte)
 
@@ -646,7 +648,7 @@ func (o *CommonOptions) expose(devNamespace, targetNamespace, password string) e
 			hash := config.HashSha(password)
 			data[kube.AUTH] = []byte(fmt.Sprintf("admin:{SHA}%s", hash))
 		} else {
-			basicAuth, err := o.kubeClient.CoreV1().Secrets(devNamespace).Get(kube.SecretBasicAuth, v1.GetOptions{})
+			basicAuth, err := o.KubeClientCached.CoreV1().Secrets(devNamespace).Get(kube.SecretBasicAuth, v1.GetOptions{})
 			if err != nil {
 				return fmt.Errorf("cannot find secret %s in namespace %s: %v", kube.SecretBasicAuth, devNamespace, err)
 			}
@@ -659,18 +661,18 @@ func (o *CommonOptions) expose(devNamespace, targetNamespace, password string) e
 				Name: kube.SecretBasicAuth,
 			},
 		}
-		_, err := o.kubeClient.CoreV1().Secrets(targetNamespace).Create(sec)
+		_, err := o.KubeClientCached.CoreV1().Secrets(targetNamespace).Create(sec)
 		if err != nil {
 			return fmt.Errorf("cannot create secret %s in target namespace %s: %v", kube.SecretBasicAuth, targetNamespace, err)
 		}
 	}
 
-	ic, err := kube.GetIngressConfig(o.kubeClient, devNamespace)
+	ic, err := kube.GetIngressConfig(o.KubeClientCached, devNamespace)
 	if err != nil {
 		return fmt.Errorf("cannot get existing team exposecontroller config from namespace %s: %v", devNamespace, err)
 	}
 
-	err = kube.AnnotateNamespaceServicesWithCertManager(o.kubeClient, targetNamespace, ic.Issuer)
+	err = kube.AnnotateNamespaceServicesWithCertManager(o.KubeClientCached, targetNamespace, ic.Issuer)
 	if err != nil {
 		return err
 	}
@@ -686,7 +688,7 @@ func (o *CommonOptions) expose(devNamespace, targetNamespace, password string) e
 
 func (o *CommonOptions) runExposecontroller(devNamespace, targetNamespace string, ic kube.IngressConfig) error {
 
-	o.cleanExposecontrollerReources(targetNamespace)
+	o.CleanExposecontrollerReources(targetNamespace)
 
 	exValues := []string{
 		"config.exposer=" + ic.Exposer,
@@ -703,7 +705,7 @@ func (o *CommonOptions) runExposecontroller(devNamespace, targetNamespace string
 	if err != nil {
 		return fmt.Errorf("exposecontroller deployment failed: %v", err)
 	}
-	err = kube.WaitForJobToSucceeded(o.kubeClient, targetNamespace, exposecontroller, 5*time.Minute)
+	err = kube.WaitForJobToSucceeded(o.KubeClientCached, targetNamespace, exposecontroller, 5*time.Minute)
 	if err != nil {
 		return fmt.Errorf("failed waiting for exposecontroller job to succeed: %v", err)
 	}
@@ -711,20 +713,21 @@ func (o *CommonOptions) runExposecontroller(devNamespace, targetNamespace string
 
 }
 
-func (o *CommonOptions) cleanExposecontrollerReources(ns string) {
+// CleanExposecontrollerReources cleans expose controller resources
+func (o *CommonOptions) CleanExposecontrollerReources(ns string) {
 
 	// let's not error if nothing to cleanup
-	o.kubeClient.RbacV1().Roles(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
-	o.kubeClient.RbacV1().RoleBindings(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
-	o.kubeClient.RbacV1().ClusterRoleBindings().Delete(exposecontroller, &metav1.DeleteOptions{})
-	o.kubeClient.CoreV1().ConfigMaps(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
-	o.kubeClient.CoreV1().ServiceAccounts(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
-	o.kubeClient.BatchV1().Jobs(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
+	o.KubeClientCached.RbacV1().Roles(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
+	o.KubeClientCached.RbacV1().RoleBindings(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
+	o.KubeClientCached.RbacV1().ClusterRoleBindings().Delete(exposecontroller, &metav1.DeleteOptions{})
+	o.KubeClientCached.CoreV1().ConfigMaps(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
+	o.KubeClientCached.CoreV1().ServiceAccounts(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
+	o.KubeClientCached.BatchV1().Jobs(ns).Delete(exposecontroller, &metav1.DeleteOptions{})
 
 }
 
 func (o *CommonOptions) getDefaultAdminPassword(devNamespace string) (string, error) {
-	basicAuth, err := o.kubeClient.CoreV1().Secrets(devNamespace).Get(JXInstallConfig, v1.GetOptions{})
+	basicAuth, err := o.KubeClientCached.CoreV1().Secrets(devNamespace).Get(JXInstallConfig, v1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("cannot find secret %s in namespace %s: %v", kube.SecretBasicAuth, devNamespace, err)
 	}
@@ -739,12 +742,12 @@ func (o *CommonOptions) getDefaultAdminPassword(devNamespace string) (string, er
 }
 
 func (o *CommonOptions) ensureAddonServiceAvailable(serviceName string) (string, error) {
-	present, err := kube.IsServicePresent(o.kubeClient, serviceName, o.currentNamespace)
+	present, err := kube.IsServicePresent(o.KubeClientCached, serviceName, o.currentNamespace)
 	if err != nil {
 		return "", fmt.Errorf("no %s provider service found, are you in your teams dev environment?  Type `jx ns` to switch.", serviceName)
 	}
 	if present {
-		url, err := kube.GetServiceURLFromName(o.kubeClient, serviceName, o.currentNamespace)
+		url, err := kube.GetServiceURLFromName(o.KubeClientCached, serviceName, o.currentNamespace)
 		if err != nil {
 			return "", fmt.Errorf("no %s provider service found, are you in your teams dev environment?  Type `jx ns` to switch.", serviceName)
 		}
@@ -757,11 +760,38 @@ func (o *CommonOptions) ensureAddonServiceAvailable(serviceName string) (string,
 
 func (o *CommonOptions) copyCertmanagerResources(targetNamespace string, ic kube.IngressConfig) error {
 	if ic.TLS {
-		err := kube.CleanCertmanagerResources(o.kubeClient, targetNamespace, ic)
+		err := kube.CleanCertmanagerResources(o.KubeClientCached, targetNamespace, ic)
 		if err != nil {
 			return fmt.Errorf("failed to create certmanager resources in target namespace %s: %v", targetNamespace, err)
 		}
 	}
 
 	return nil
+}
+
+func (o *CommonOptions) getJobName() string {
+	job := os.Getenv("JOB_NAME")
+	if job != "" {
+		return job
+	}
+	owner := os.Getenv("REPO_OWNER")
+	repo := os.Getenv("REPO_NAME")
+	branch := os.Getenv("BRANCH_NAME")
+
+	if owner != "" && repo != "" && branch != "" {
+		return fmt.Sprintf("%s/%s/%s", owner, repo, branch)
+	}
+	return ""
+}
+
+func (o *CommonOptions) getBuildNumber() string {
+	buildNumber := os.Getenv("BUILD_NUMBER")
+	if buildNumber != "" {
+		return buildNumber
+	}
+	buildID := os.Getenv("BUILD_ID")
+	if buildID != "" {
+		return buildID
+	}
+	return ""
 }

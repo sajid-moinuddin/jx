@@ -366,7 +366,7 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 		if err != nil {
 			return "", nil, err
 		}
-		err = modifyNamespace(out, dir, env, git)
+		err = ModifyNamespace(out, dir, env, git)
 		if err != nil {
 			return "", nil, err
 		}
@@ -419,7 +419,7 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 				if err != nil {
 					return "", nil, err
 				}
-				err = modifyNamespace(out, dir, env, git)
+				err = ModifyNamespace(out, dir, env, git)
 				if err != nil {
 					return "", nil, err
 				}
@@ -463,7 +463,7 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 			if err != nil {
 				return "", nil, err
 			}
-			err = modifyNamespace(out, dir, env, git)
+			err = ModifyNamespace(out, dir, env, git)
 			if err != nil {
 				return "", nil, err
 			}
@@ -481,7 +481,8 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 	return repo.CloneURL, provider, nil
 }
 
-func modifyNamespace(out io.Writer, dir string, env *v1.Environment, git gits.Gitter) error {
+// ModifyNamespace modifies the namespace
+func ModifyNamespace(out io.Writer, dir string, env *v1.Environment, git gits.Gitter) error {
 	ns := env.Spec.Namespace
 	if ns == "" {
 		return fmt.Errorf("No Namespace is defined for Environment %s", env.Name)
@@ -502,7 +503,7 @@ func modifyNamespace(out io.Writer, dir string, env *v1.Environment, git gits.Gi
 		return err
 	}
 	lines := strings.Split(string(input), "\n")
-	err = replaceMakeVariable(lines, "NAMESPACE", "\""+ns+"\"")
+	err = ReplaceMakeVariable(lines, "NAMESPACE", "\""+ns+"\"")
 	if err != nil {
 		return err
 	}
@@ -592,7 +593,8 @@ func addValues(out io.Writer, dir string, values config.HelmValuesConfig, git gi
 	return nil
 }
 
-func replaceMakeVariable(lines []string, name string, value string) error {
+// ReplaceMakeVariable needs a description
+func ReplaceMakeVariable(lines []string, name string, value string) error {
 	re, err := regexp.Compile(name + "\\s*:?=\\s*(.*)")
 	if err != nil {
 		return err
@@ -699,6 +701,34 @@ func GetEnvironments(jxClient versioned.Interface, ns string) (map[string]*v1.En
 	}
 	sort.Strings(envNames)
 	return m, envNames, nil
+}
+
+// GetEnvironment find an environment by name
+func GetEnvironment(jxClient versioned.Interface, ns string, name string) (*v1.Environment, error) {
+	envs, err := jxClient.JenkinsV1().Environments(ns).List(metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for _, env := range envs.Items {
+		if env.GetName() == name {
+			return &env, nil
+		}
+	}
+	return nil, fmt.Errorf("no environment with name '%s' found", name)
+}
+
+// GetEnvironmentsByPrURL find an environment by a pull request URL
+func GetEnvironmentsByPrURL(jxClient versioned.Interface, ns string, prURL string) (*v1.Environment, error) {
+	envs, err := jxClient.JenkinsV1().Environments(ns).List(metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for _, env := range envs.Items {
+		if env.Spec.PullRequestURL == prURL {
+			return &env, nil
+		}
+	}
+	return nil, fmt.Errorf("no environment found for PR '%s'", prURL)
 }
 
 // GetEnvironments returns the namespace name for a given environment

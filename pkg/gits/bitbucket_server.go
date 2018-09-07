@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-github/github"
 	"github.com/mitchellh/mapstructure"
 
 	bitbucket "github.com/gfleury/go-bitbucket-v1"
@@ -780,6 +781,10 @@ func (b *BitbucketServerProvider) ServerURL() string {
 	return b.Server.URL
 }
 
+func (b *BitbucketServerProvider) BranchArchiveURL(org string, name string, branch string) string {
+	return util.UrlJoin(b.ServerURL(), "rest/api/1.0/projects", org, "repos", name, "archive?format=zip&at="+branch)
+}
+
 func (b *BitbucketServerProvider) CurrentUsername() string {
 	return b.Username
 }
@@ -810,10 +815,25 @@ func (b *BitbucketServerProvider) UpdateRelease(owner string, repo string, tag s
 	return nil
 }
 
-func (p *BitbucketServerProvider) ListReleases(org string, name string) ([]*GitRelease, error) {
+func (b *BitbucketServerProvider) ListReleases(org string, name string) ([]*GitRelease, error) {
 	answer := []*GitRelease{}
 	log.Warn("Bitbucket Server doesn't support releases")
 	return answer, nil
+}
+
+func (b *BitbucketServerProvider) AddCollaborator(user string, repo string) error {
+	log.Infof("Automatically adding the pipeline user as a collaborator is currently not implemented for bitbucket. Please add user: %v as a collaborator to this project.\n", user)
+	return nil
+}
+
+func (b *BitbucketServerProvider) ListInvitations() ([]*github.RepositoryInvitation, *github.Response, error) {
+	log.Infof("Automatically adding the pipeline user as a collaborator is currently not implemented for bitbucket.\n")
+	return []*github.RepositoryInvitation{}, &github.Response{}, nil
+}
+
+func (b *BitbucketServerProvider) AcceptInvitation(ID int64) (*github.Response, error) {
+	log.Infof("Automatically adding the pipeline user as a collaborator is currently not implemented for bitbucket.\n")
+	return &github.Response{}, nil
 }
 
 func BitBucketServerAccessTokenURL(url string) string {

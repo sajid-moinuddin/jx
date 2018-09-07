@@ -185,7 +185,7 @@ func NewCmdStepChangelog(f Factory, out io.Writer, errOut io.Writer) *cobra.Comm
 
 func (o *StepChangelogOptions) Run() error {
 	// lets enable batch mode if we detect we are inside a pipeline
-	if !o.BatchMode && os.Getenv("BUILD_NUMBER") != "" {
+	if !o.BatchMode && o.getBuildNumber() != "" {
 		log.Infoln("Using batch mode as inside a pipeline")
 		o.BatchMode = true
 	}
@@ -421,18 +421,18 @@ func (o *StepChangelogOptions) Run() error {
 			log.Infof("generated: %s\n", util.ColorInfo(crdFile))
 		}
 	}
+	appName := ""
+	if gitInfo != nil {
+		appName = gitInfo.Name
+	}
+	if appName == "" {
+		appName = release.Spec.Name
+	}
+	if appName == "" {
+		appName = release.Spec.GitRepository
+	}
 	if !o.NoReleaseInDev {
 		devRelease := *release
-		appName := ""
-		if gitInfo != nil {
-			appName = gitInfo.Name
-		}
-		if appName == "" {
-			appName = release.Spec.Name
-		}
-		if appName == "" {
-			appName = release.Spec.GitRepository
-		}
 		devRelease.ResourceVersion = ""
 		devRelease.Namespace = devNs
 		devRelease.Name = kube.ToValidName(appName + "-" + cleanVersion)
@@ -447,7 +447,7 @@ func (o *StepChangelogOptions) Run() error {
 	releaseNotesURL := release.Spec.ReleaseNotesURL
 	pipeline := ""
 	build := o.Build
-	pipeline, build = o.getPipelineName(gitInfo, pipeline, build)
+	pipeline, build = o.getPipelineName(gitInfo, pipeline, build, appName)
 	if pipeline != "" && build != "" {
 		name := kube.ToValidName(pipeline + "-" + build)
 		// lets see if we can update the pipeline

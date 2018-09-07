@@ -213,7 +213,7 @@ func (c *AuthConfig) PickServer(message string, batchMode bool) (*AuthServer, er
 	return nil, fmt.Errorf("Could not find server for URL %s", url)
 }
 
-func (c *AuthConfig) PickServerUserAuth(server *AuthServer, message string, batchMode bool) (*UserAuth, error) {
+func (c *AuthConfig) PickServerUserAuth(server *AuthServer, message string, batchMode bool, org string) (*UserAuth, error) {
 	url := server.URL
 	userAuths := c.FindUserAuths(url)
 	if len(userAuths) == 1 {
@@ -247,6 +247,17 @@ func (c *AuthConfig) PickServerUserAuth(server *AuthServer, message string, batc
 		return c.GetOrCreateUserAuth(url, username), nil
 	}
 	if len(userAuths) > 1 {
+
+		// If in batchmode select the user auth based on the org passed, or default to the first auth.
+		if batchMode {
+			for i, x := range userAuths {
+				if x.Username == org {
+					return userAuths[i], nil
+				}
+			}
+			return userAuths[0], nil
+		}
+
 		usernames := []string{}
 		m := map[string]*UserAuth{}
 		for _, ua := range userAuths {

@@ -72,6 +72,8 @@ func NewCmdControllerWorkflow(f Factory, out io.Writer, errOut io.Writer) *cobra
 		Aliases: []string{"workflows"},
 	}
 
+	options.addCommonFlags(cmd)
+
 	cmd.Flags().StringVarP(&options.Namespace, "namespace", "n", "", "The namespace to watch or defaults to the current namespace")
 	cmd.Flags().StringVarP(&options.LocalHelmRepoName, "helm-repo-name", "r", kube.LocalHelmRepoName, "The name of the helm repository that contains the app")
 	cmd.Flags().BoolVarP(&options.NoWatch, "no-watch", "", false, "Disable watch so just performs any delta processes on pending workflows")
@@ -81,7 +83,7 @@ func NewCmdControllerWorkflow(f Factory, out io.Writer, errOut io.Writer) *cobra
 
 // Run implements this command
 func (o *ControllerWorkflowOptions) Run() error {
-	err := o.registerWorkflowCRD()
+	err := o.registerPipelineActivityCRD()
 	if err != nil {
 		return err
 	}
@@ -166,12 +168,16 @@ func (o *ControllerWorkflowOptions) Run() error {
 				log.Infof("Polling to see if any PRs have merged: %v\n", t)
 			}
 			//o.pollGitPipelineStatuses(jxClient, ns)
-			o.reloadAndPollGitPipelineStatuses(jxClient, ns)
+			o.ReloadAndPollGitPipelineStatuses(jxClient, ns)
 		}
 	}()
 
 	// Wait forever
 	select {}
+}
+
+func (o *ControllerWorkflowOptions) PipelineMap() map[string]*v1.PipelineActivity {
+	return o.pipelineMap
 }
 
 func (o *ControllerWorkflowOptions) updatePipelinesWithoutWatching(jxClient versioned.Interface, ns string) error {
@@ -188,6 +194,7 @@ func (o *ControllerWorkflowOptions) updatePipelinesWithoutWatching(jxClient vers
 		return err
 	}
 	for _, pipeline := range pipelines.Items {
+		o.pipelineMap[pipeline.Name] = &pipeline
 		o.onActivity(&pipeline, jxClient, ns)
 	}
 	return nil
@@ -257,9 +264,6 @@ func (o *ControllerWorkflowOptions) onActivity(pipeline *v1.PipelineActivity, jx
 
 	activities := jxClient.JenkinsV1().PipelineActivities(ns)
 
-	if workflowName == "" {
-		workflowName = "default"
-	}
 	if repoName == "" || version == "" || build == "" || pipelineName == "" {
 		if o.Verbose {
 			log.Infof("Ignoring missing data for pipeline: %s repo: %s version: %s status: %s\n", pipeline.Name, repoName, version, string(pipeline.Spec.WorkflowStatus))
@@ -267,6 +271,12 @@ func (o *ControllerWorkflowOptions) onActivity(pipeline *v1.PipelineActivity, jx
 		o.removePipelineActivity(pipeline, activities)
 		return
 	}
+
+	if workflowName == "" {
+		o.removePipelineActivityIfNoManual(pipeline, activities)
+		return
+	}
+
 	if !pipeline.Spec.WorkflowStatus.IsTerminated() {
 		flow := o.workflowMap[workflowName]
 		if flow == nil && workflowName == "default" {
@@ -280,8 +290,7 @@ func (o *ControllerWorkflowOptions) onActivity(pipeline *v1.PipelineActivity, jx
 		}
 
 		if flow == nil {
-			log.Warnf("Cannot process pipeline %s due to workflow name %s not existing\n", pipeline.Name, workflowName)
-			o.removePipelineActivity(pipeline, activities)
+			o.removePipelineActivityIfNoManual(pipeline, activities)
 			return
 		}
 
@@ -426,23 +435,23 @@ func (o *ControllerWorkflowOptions) pollGitPipelineStatuses(jxClient versioned.I
 	}
 }
 
-// reloadAndPollGitPipelineStatuses reloads all the current pending PipelineActivity objects and polls their Git
+// ReloadAndPollGitPipelineStatuses reloads all the current pending PipelineActivity objects and polls their Git
 // status to see if the workflows can progress.
 //
 // Note this method is only really for testing and simulation
-func (o *ControllerWorkflowOptions) reloadAndPollGitPipelineStatuses(jxClient versioned.Interface, ns string) {
+func (o *ControllerWorkflowOptions) ReloadAndPollGitPipelineStatuses(jxClient versioned.Interface, ns string) {
 	environments := jxClient.JenkinsV1().Environments(ns)
 	activities := jxClient.JenkinsV1().PipelineActivities(ns)
 
-	for name, _ := range o.pipelineMap {
-		latest, err := activities.Get(name, metav1.GetOptions{})
-		if err != nil {
-			log.Warnf("failed to get PipelineActivity %s: %s", name, err)
-		} else {
+	pipelines, err := activities.List(metav1.ListOptions{})
+	if err != nil {
+		log.Warnf("failed to list PipelineActivity resources: %s", err)
+	} else {
+		for _, pipeline := range pipelines.Items {
 			if o.Verbose {
-				log.Infof("Polling git status of activity %s\n", latest.Name)
+				log.Infof("Polling git status of activity %s\n", pipeline.Name)
 			}
-			o.pollGitStatusforPipeline(latest, activities, environments, ns)
+			o.pollGitStatusforPipeline(&pipeline, activities, environments, ns)
 		}
 	}
 }
@@ -450,11 +459,12 @@ func (o *ControllerWorkflowOptions) reloadAndPollGitPipelineStatuses(jxClient ve
 // pollGitStatusforPipeline polls the pending PipelineActivity resources to see if the
 // PR has merged or the pipeline on master has completed
 func (o *ControllerWorkflowOptions) pollGitStatusforPipeline(activity *v1.PipelineActivity, activities typev1.PipelineActivityInterface, environments typev1.EnvironmentInterface, ns string) {
-	if !o.isReleaseBranch(activity.BranchName()) || activity.Spec.WorkflowStatus == v1.ActivityStatusTypeSucceeded {
+	if !o.isReleaseBranch(activity.BranchName()) {
 		o.removePipelineActivity(activity, activities)
 		return
 	}
 
+	// TODO should be is newest pipeline for this environment promote...
 	if !o.isNewestPipeline(activity, activities) {
 		return
 	}
@@ -465,7 +475,9 @@ func (o *ControllerWorkflowOptions) pollGitStatusforPipeline(activity *v1.Pipeli
 			continue
 		}
 		if promote.Status.IsTerminated() {
-			log.Infof("Pipeline %s promote Environment %s ignored as status %s\n", activity.Name, promote.Environment, string(promote.Status))
+			if o.Verbose {
+				log.Infof("Pipeline %s promote Environment %s ignored as status %s\n", activity.Name, promote.Environment, string(promote.Status))
+			}
 			continue
 		}
 		envName := promote.Environment
@@ -487,7 +499,7 @@ func (o *ControllerWorkflowOptions) pollGitStatusforPipeline(activity *v1.Pipeli
 		if gitProvider == nil || gitInfo == nil {
 			return
 		}
-		prNumber, err := pullRequestURLToNumber(prURL)
+		prNumber, err := PullRequestURLToNumber(prURL)
 		if err != nil {
 			log.Warnf("Failed to get PR number: %s", err)
 			return
@@ -696,7 +708,7 @@ func (o *ControllerWorkflowOptions) createPromoteStepActivityKey(buildName strin
 	lastCommitSha := ""
 	lastCommitMessage := ""
 	lastCommitURL := ""
-	build := digitSuffix(buildName)
+	build := DigitSuffix(buildName)
 	if build == "" {
 		build = "1"
 	}
@@ -746,7 +758,8 @@ func (o *ControllerWorkflowOptions) createPromoteStepActivityKey(buildName strin
 	}
 }
 
-func pullRequestURLToNumber(text string) (int, error) {
+// PullRequestURLToNumber turns pull request URL to number
+func PullRequestURLToNumber(text string) (int, error) {
 	paths := strings.Split(strings.TrimSuffix(text, "/"), "/")
 	lastPath := paths[len(paths)-1]
 	prNumber, err := strconv.Atoi(lastPath)
@@ -759,6 +772,10 @@ func pullRequestURLToNumber(text string) (int, error) {
 func (o *ControllerWorkflowOptions) isReleaseBranch(branchName string) bool {
 	// TODO look in TeamSettings for a list of allowed release branch patterns
 	return branchName == "master"
+}
+
+func noopCallback(activity *v1.PipelineActivity) bool {
+	return true
 }
 
 func setActivitySucceeded(activity *v1.PipelineActivity) bool {
@@ -775,7 +792,20 @@ func setActivityAborted(activity *v1.PipelineActivity) bool {
 }
 
 func (o *ControllerWorkflowOptions) removePipelineActivity(activity *v1.PipelineActivity, activities typev1.PipelineActivityInterface) {
-	o.modifyAndRemovePipelineActivity(activity, activities, setActivitySucceeded)
+	o.modifyAndRemovePipelineActivity(activity, activities, noopCallback)
+}
+
+// removePipelineActivityIfNoManual only remove the PipelineActivity if there is not any pending Promote
+func (o *ControllerWorkflowOptions) removePipelineActivityIfNoManual(activity *v1.PipelineActivity, activities typev1.PipelineActivityInterface) {
+	for _, step := range activity.Spec.Steps {
+		promote := step.Promote
+		if promote != nil {
+			if promote.Status == v1.ActivityStatusTypePending || promote.Status == v1.ActivityStatusTypeRunning {
+				return
+			}
+		}
+	}
+	o.removePipelineActivity(activity, activities)
 }
 
 func (o *ControllerWorkflowOptions) modifyAndRemovePipelineActivity(activity *v1.PipelineActivity, activities typev1.PipelineActivityInterface, callback func(activity *v1.PipelineActivity) bool) error {
