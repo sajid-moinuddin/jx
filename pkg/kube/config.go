@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"io/ioutil"
 
+	"github.com/pkg/errors"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
 const (
+	// DefaultNamespace the standard namespace for Jenkins X
 	DefaultNamespace = "jx"
 
+	// PodNamespaceFile the file path and name for pod namespace
 	PodNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
@@ -58,6 +61,17 @@ func CurrentContext(config *api.Config) *api.Context {
 	return nil
 }
 
+// CurrentCluster returns the current cluster
+func CurrentCluster(config *api.Config) (string, *api.Cluster) {
+	if config != nil {
+		context := CurrentContext(config)
+		if context != nil && config.Clusters != nil {
+			return context.Cluster, config.Clusters[context.Cluster]
+		}
+	}
+	return "", nil
+}
+
 // CurrentServer returns the current context's server
 func CurrentServer(config *api.Config) string {
 	context := CurrentContext(config)
@@ -73,4 +87,77 @@ func Server(config *api.Config, context *api.Context) string {
 		}
 	}
 	return ""
+}
+
+// CertificateAuthorityData returns the certificate authority data for the given context
+func CertificateAuthorityData(config *api.Config, context *api.Context) []byte {
+	if context != nil && config != nil && config.Clusters != nil {
+		cluster := config.Clusters[context.Cluster]
+		if cluster != nil {
+			return cluster.CertificateAuthorityData
+		}
+	}
+	return []byte{}
+}
+
+// UpdateConfig defines new config entries for jx
+func UpdateConfig(namespace string, server string, caData string, user string, token string) error {
+	config, po, err := LoadConfig()
+	if err != nil {
+		return errors.Wrap(err, "loading existing config")
+	}
+
+	clusterName := "jx-cluster"
+	cluster := &api.Cluster{
+		Server: server,
+		CertificateAuthorityData: []byte(caData),
+	}
+
+	authInfo := &api.AuthInfo{
+		Token: token,
+	}
+
+	ctxName := fmt.Sprintf("jx-cluster-%s-ctx", user)
+	ctx := &api.Context{
+		Cluster:   clusterName,
+		AuthInfo:  user,
+		Namespace: namespace,
+	}
+
+	config.Clusters[clusterName] = cluster
+	config.AuthInfos[user] = authInfo
+	config.Contexts[ctxName] = ctx
+	config.CurrentContext = ctxName
+
+	return clientcmd.ModifyConfig(po, *config, false)
+}
+
+// AddUserToConfig adds the given user to the config
+func AddUserToConfig(user string, token string, config *api.Config) (*api.Config, error) {
+	currentCluserName, currentCluster := CurrentCluster(config)
+	if currentCluster == nil || currentCluserName == "" {
+		return config, errors.New("no cluster found in config")
+	}
+	currentCtx := CurrentContext(config)
+	currentNamespace := DefaultNamespace
+	if currentCtx != nil {
+		currentNamespace = currentCtx.Namespace
+	}
+
+	ctx := &api.Context{
+		Cluster:   currentCluserName,
+		AuthInfo:  user,
+		Namespace: currentNamespace,
+	}
+
+	authInfo := &api.AuthInfo{
+		Token: token,
+	}
+
+	config.AuthInfos[user] = authInfo
+	ctxName := fmt.Sprintf("jx-%s-%s-ctx", currentCluserName, user)
+	config.Contexts[ctxName] = ctx
+	config.CurrentContext = ctxName
+
+	return config, nil
 }

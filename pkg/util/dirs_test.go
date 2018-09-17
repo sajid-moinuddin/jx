@@ -2,6 +2,7 @@ package util_test
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/jenkins-x/jx/pkg/util"
@@ -12,7 +13,7 @@ import (
 
 func TestJXBinaryLocationSuccess(t *testing.T) {
 	t.Parallel()
-	commandInterface := mocks.NewMockCommandInterface()
+	commandInterface := mocks.NewMockCommander()
 	When(commandInterface.RunWithoutRetry()).ThenReturn("/test/something/bin/jx", nil)
 
 	res, err := util.JXBinaryLocation(commandInterface)
@@ -22,10 +23,26 @@ func TestJXBinaryLocationSuccess(t *testing.T) {
 
 func TestJXBinaryLocationFailure(t *testing.T) {
 	t.Parallel()
-	commandInterface := mocks.NewMockCommandInterface()
+	commandInterface := mocks.NewMockCommander()
 	When(commandInterface.RunWithoutRetry()).ThenReturn("", errors.New("Kaboom"))
 
 	res, err := util.JXBinaryLocation(commandInterface)
 	assert.Equal(t, "", res)
 	assert.Error(t, err, "Should error")
+}
+
+func TestJXBinaryLocationFromEnv(t *testing.T) {
+	os.Setenv("JX_BINARY", "/usr/bin")
+	defer os.Unsetenv("JX_BINARY")
+	res, err := util.JXBinaryLocation(&util.Command{})
+	assert.Nil(t, err)
+	assert.Equal(t, "/usr/bin", res)
+}
+
+func TestJXBinaryLocationFromEnvWithPrefix(t *testing.T) {
+	os.Setenv("JX_BINARY", "/usr/bin/jx")
+	defer os.Unsetenv("JX_BINARY")
+	res, err := util.JXBinaryLocation(&util.Command{})
+	assert.Nil(t, err)
+	assert.Equal(t, "/usr/bin", res)
 }

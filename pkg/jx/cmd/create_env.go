@@ -15,7 +15,6 @@ import (
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/prow"
 	"github.com/jenkins-x/jx/pkg/util"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -174,10 +173,12 @@ func (o *CreateEnvOptions) Run() error {
 	}
 	gitURL := env.Spec.Source.URL
 	gitInfo, err := gits.ParseGitURL(gitURL)
-
+	if err != nil {
+		return err
+	}
 	if o.Prow {
 		repo := fmt.Sprintf("%s/environment-%s-%s", gitInfo.Organisation, o.Prefix, o.Options.Name)
-		err = prow.AddRepo(o.KubeClientCached, []string{repo}, devEnv.Spec.Namespace)
+		err = prow.AddEnvironment(o.KubeClientCached, []string{repo}, devEnv.Spec.Namespace, env.Spec.Namespace)
 		if err != nil {
 			return fmt.Errorf("failed to add repo %s to prow config in namespace %s: %v", repo, env.Spec.Namespace, err)
 		}
@@ -192,25 +193,30 @@ func (o *CreateEnvOptions) Run() error {
 			gitProvider = p
 		}
 		if o.Prow {
+			config := authConfigSvc.Config()
+			u := gitInfo.HostURL()
+			server := config.GetOrCreateServer(u)
+			if len(server.Users) == 0 {
+				// lets check if the host was used in `~/.jx/gitAuth.yaml` instead of URL
+				s2 := config.GetOrCreateServer(gitInfo.Host)
+				if s2 != nil && len(s2.Users) > 0 {
+					server = s2
+					u = gitInfo.Host
+				}
+			}
+			user, err := config.PickServerUserAuth(server, "user name for the Pipeline", o.BatchMode, "")
+			if err != nil {
+				return err
+			}
+			if user.Username == "" {
+				return fmt.Errorf("Could find a username for git server %s", u)
+			}
+			_, err = o.updatePipelineGitCredentialsSecret(server, user)
+			if err != nil {
+				return err
+			}
 			// register the webhook
-			baseURL, err := kube.GetServiceURLFromName(o.KubeClientCached, "hook", o.devNamespace)
-			if err != nil {
-				return err
-			}
-			webhookUrl := util.UrlJoin(baseURL, "hook")
-
-			hmacToken, err := o.KubeClientCached.CoreV1().Secrets(o.devNamespace).Get("hmac-token", metav1.GetOptions{})
-			if err != nil {
-				return err
-			}
-
-			webhook := &gits.GitWebHookArguments{
-				Owner:  gitInfo.Organisation,
-				Repo:   gitInfo,
-				URL:    webhookUrl,
-				Secret: string(hmacToken.Data["hmac"]),
-			}
-			return gitProvider.CreateWebHook(webhook)
+			return o.createWebhookProw(gitURL, gitProvider)
 		} else {
 			return o.ImportProject(gitURL, envDir, jenkins.DefaultJenkinsfile, o.BranchPattern, o.EnvJobCredentials, false, gitProvider, authConfigSvc, true, o.BatchMode)
 		}

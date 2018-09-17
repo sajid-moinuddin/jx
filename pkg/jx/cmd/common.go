@@ -246,11 +246,15 @@ func (o *CommonOptions) Git() gits.Gitter {
 
 func (o *CommonOptions) Helm() helm.Helmer {
 	if o.helm == nil {
-		helmBinary, err := o.TeamHelmBin()
+		helmBinary, noTiller, err := o.TeamHelmBin()
 		if err != nil {
 			helmBinary = defaultHelmBin
 		}
 		o.helm = helm.NewHelmCLI(helmBinary, helm.V2, "")
+		if noTiller {
+			o.helm.SetHost(o.tillerAddress())
+			o.startLocalTillerIfNotRunning()
+		}
 	}
 	return o.helm
 }
@@ -770,10 +774,6 @@ func (o *CommonOptions) copyCertmanagerResources(targetNamespace string, ic kube
 }
 
 func (o *CommonOptions) getJobName() string {
-	job := os.Getenv("JOB_NAME")
-	if job != "" {
-		return job
-	}
 	owner := os.Getenv("REPO_OWNER")
 	repo := os.Getenv("REPO_NAME")
 	branch := os.Getenv("BRANCH_NAME")
@@ -781,11 +781,20 @@ func (o *CommonOptions) getJobName() string {
 	if owner != "" && repo != "" && branch != "" {
 		return fmt.Sprintf("%s/%s/%s", owner, repo, branch)
 	}
+
+	job := os.Getenv("JOB_NAME")
+	if job != "" {
+		return job
+	}
 	return ""
 }
 
 func (o *CommonOptions) getBuildNumber() string {
-	buildNumber := os.Getenv("BUILD_NUMBER")
+	buildNumber := os.Getenv("JX_BUILD_NUMBER")
+	if buildNumber != "" {
+		return buildNumber
+	}
+	buildNumber = os.Getenv("BUILD_NUMBER")
 	if buildNumber != "" {
 		return buildNumber
 	}

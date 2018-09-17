@@ -9,7 +9,7 @@ import (
 
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
-	)
+)
 
 // HelmCLI implements common helm actions based on helm CLI
 type HelmCLI struct {
@@ -41,6 +41,14 @@ func NewHelmCLI(binary string, version Version, cwd string, args ...string) *Hel
 		Runner:     runner,
 	}
 	return cli
+}
+
+// SetHost is used to point at a locally running tiller
+func (h *HelmCLI) SetHost(tillerAddress string) {
+	if h.Runner.Env == nil {
+		h.Runner.Env = map[string]string{}
+	}
+	h.Runner.Env["HELM_HOST"] = tillerAddress
 }
 
 // SetCWD configures the common working directory of helm CLI
@@ -279,12 +287,14 @@ func (h *HelmCLI) SearchChartVersions(chart string) ([]string, error) {
 	}
 	versions := []string{}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for _, line := range lines[1:] {
-		fields := strings.Fields(line)
-		if len(fields) > 1 {
-			v := fields[1]
-			if v != "" {
-				versions = append(versions, v)
+	if len(lines) > 1 {
+		for _, line := range lines[1:] {
+			fields := strings.Fields(line)
+			if len(fields) > 1 {
+				v := fields[1]
+				if v != "" {
+					versions = append(versions, v)
+				}
 			}
 		}
 	}
@@ -350,6 +360,11 @@ func (h *HelmCLI) StatusReleases() (map[string]string, error) {
 // Lint lints the helm chart from the current working directory and returns the warnings in the output
 func (h *HelmCLI) Lint() (string, error) {
 	return h.runHelmWithOutput("lint")
+}
+
+// Env returns the environment variables for the helmer
+func (h *HelmCLI) Env() map[string]string {
+	return h.Runner.Env
 }
 
 // Version executes the helm version command and returns its output

@@ -76,15 +76,27 @@ const (
 	// ConfigMapJenkinsDockerRegistry is the ConfigMap containing the Docker Registry configuration
 	ConfigMapJenkinsDockerRegistry = "jenkins-x-docker-registry"
 
+	// ConfigMapNameJXInstallConfig is the ConfigMap containing the jx installation's CA and server url. Used by jx login
+	ConfigMapNameJXInstallConfig = "jx-install-config"
+
 	// LocalHelmRepoName is the default name of the local chart repository where CI/CD releases go to
 	LocalHelmRepoName = "releases"
 
 	// DeploymentExposecontrollerService the name of the Deployment for the Exposecontroller Service
 	DeploymentExposecontrollerService = "exposecontroller-service"
 
+	// DeploymentProwBuild the name of the Deployment for the Prow webhook engine
+	DeploymentProwBuild = "prow-build"
+
 	DefaultEnvironmentGitRepoURL = "https://github.com/jenkins-x/default-environment-charts.git"
 
 	DefaultOrganisationGitRepoURL = "https://github.com/jenkins-x/default-organisation.git"
+
+	// AnnotationTitle the human readable name of a resource which can include mixed case, spaces and punctuation
+	AnnotationTitle = "title"
+
+	// AnnotationDescription the tooltip / texual description of an resource
+	AnnotationDescription = "description"
 
 	// LabelKind to indicate the kind of auth, such as Git or Issue
 	LabelKind = "jenkins.io/kind"
@@ -106,6 +118,9 @@ const (
 
 	// ValueKindCVE an addon auth PipelineEvent
 	ValueKindPipelineEvent = "PipelineEvent"
+
+	// ValueKindEnvironmentRole to indicate a Role which maps to an EnvironmentRoleBinding
+	ValueKindEnvironmentRole = "EnvironmentRole"
 
 	// ValueKindCVE an addon auth PipelineEvent
 	ValueKindRelease = "Release"
@@ -207,5 +222,6 @@ var (
 	AddonServices = map[string]string{
 		"anchore":         "anchore-anchore-engine",
 		"pipeline-events": "jx-pipeline-events-elasticsearch-client",
+		"grafana":         "grafana",
 	}
 )

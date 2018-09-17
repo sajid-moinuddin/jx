@@ -96,6 +96,19 @@ func BackupDir() (string, error) {
 	return path, nil
 }
 
+func LogsDir() (string, error) {
+	h, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(h, "logs")
+	err = os.MkdirAll(path, DefaultWritePermissions)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // JXBinLocation finds the JX config directory and creates a bin directory inside it if it does not already exist. Returns the JX bin path
 func JXBinLocation() (string, error) {
 	h, err := ConfigDir()
@@ -111,7 +124,11 @@ func JXBinLocation() (string, error) {
 }
 
 // JXBinaryLocation Returns the path to the currently installed JX binary.
-func JXBinaryLocation(commandInterface CommandInterface) (string, error) {
+func JXBinaryLocation(commandInterface Commander) (string, error) {
+	jxBinaryFromEnv, found := os.LookupEnv("JX_BINARY")
+	if found {
+		return strings.TrimSuffix(jxBinaryFromEnv, "/jx"), nil
+	}
 	commandInterface.SetName("which")
 	commandInterface.SetArgs([]string{"jx"})
 	out, err := commandInterface.RunWithoutRetry()

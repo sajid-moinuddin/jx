@@ -78,6 +78,12 @@
   revision = "15df0648130a623e418886f81b2aaecd0a00547b"
 
 [[projects]]
+  name = "github.com/StackExchange/wmi"
+  packages = ["."]
+  revision = "5d049714c4a64225c3c79a7cf7d02f7fb5b96338"
+  version = "1.0.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/alexflint/go-filemutex"
   packages = ["."]
@@ -133,6 +139,7 @@
     "private/protocol/xml/xmlutil",
     "service/ec2",
     "service/ecr",
+    "service/elbv2",
     "service/route53",
     "service/s3",
     "service/sts"
@@ -335,6 +342,15 @@
   version = "v1.38.1"
 
 [[projects]]
+  name = "github.com/go-ole/go-ole"
+  packages = [
+    ".",
+    "oleutil"
+  ]
+  revision = "a41e3c4b706f6ae8dfbff342b06e40fa4d2d0506"
+  version = "v1.2.1"
+
+[[projects]]
   name = "github.com/gobwas/glob"
   packages = [
     ".",
@@ -384,10 +400,8 @@
   revision = "e89373fe6b4a7413d7acd6da1725b83ef713e6e4"
 
 [[projects]]
-  digest = "1:4be3c01ef56542da4f1268c52a8b88bae5309ec3dade7755e250bc933e13ac70"
   name = "github.com/google/go-github"
   packages = ["github"]
-  pruneopts = "NUT"
   revision = "08dbadce1a0514f79ea9a9aa91b2f12ba656d5a7"
   version = "v18.0.0"
 
@@ -505,7 +519,7 @@
   revision = "ef8a98b0bbce4a65b5aa4c368430a80ddc533168"
 
 [[projects]]
-  branch = "master"
+  branch = "kubernetes-1.11.0"
   name = "github.com/heptio/sonobuoy"
   packages = [
     "pkg/backplane/ca",
@@ -528,7 +542,21 @@
     "pkg/tarball",
     "pkg/templates"
   ]
-  revision = "1063612447506c1f190a11e9c25601cc7243de6c"
+  revision = "09552f65aa7c91b1ec3beebdab72262cda88405a"
+  source = "https://github.com/jenkins-x/sonobuoy.git"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/hpcloud/tail"
+  packages = [
+    ".",
+    "ratelimiter",
+    "util",
+    "watch",
+    "winfile"
+  ]
+  revision = "07ce09a4c64a2606b7cd2db4a3f45d37fab32367"
+  source = "github.com/ccojocar/tail"
 
 [[projects]]
   name = "github.com/imdario/mergo"
@@ -589,6 +617,15 @@
   packages = ["."]
   revision = "9fc7bb800b555d63157c65a904c86a2cc7b4e795"
   version = "0.4"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/knative/build"
+  packages = [
+    "pkg/apis/build",
+    "pkg/apis/build/v1alpha1"
+  ]
+  revision = "846036c8b91df25fa57da4d48a8ae5f9129c81f0"
 
 [[projects]]
   branch = "master"
@@ -803,6 +840,25 @@
   packages = ["diffmatchpatch"]
   revision = "1744e2970ca51c86172c8190fadad617561ed6e7"
   version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/shirou/gopsutil"
+  packages = [
+    "cpu",
+    "host",
+    "internal/common",
+    "mem",
+    "net",
+    "process"
+  ]
+  revision = "eb1f1ab16f2ef35f23024e10888dfdb5c17fcb92"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/shirou/w32"
+  packages = ["."]
+  revision = "bb4de0191aa41b5507caa14b0650cdbddcd9280b"
 
 [[projects]]
   branch = "master"
@@ -1219,6 +1275,12 @@
   version = "v4.5.0"
 
 [[projects]]
+  branch = "v1"
+  name = "gopkg.in/tomb.v1"
+  packages = ["."]
+  revision = "dd632973f1e7218eb1089048e0798ec9ae7dceb8"
+
+[[projects]]
   name = "gopkg.in/warnings.v0"
   packages = ["."]
   revision = "ec4a0fea49c7b46c2aeb0b51aac55779c607e52b"
@@ -1231,7 +1293,6 @@
   version = "v2.2.1"
 
 [[projects]]
-  branch = "release-1.11"
   name = "k8s.io/api"
   packages = [
     "admissionregistration/v1alpha1",
@@ -1264,7 +1325,8 @@
     "storage/v1alpha1",
     "storage/v1beta1"
   ]
-  revision = "2d6f90ab1293a1fb871cf149423ebb72aa7423aa"
+  revision = "072894a440bdee3a891dea811fe42902311cd2a3"
+  version = "kubernetes-1.11.0"
 
 [[projects]]
   branch = "release-1.11"
@@ -1281,7 +1343,6 @@
   revision = "bbc52469f98bf18f81d6010a32c3377726cbfd84"
 
 [[projects]]
-  branch = "release-1.11"
   name = "k8s.io/apimachinery"
   packages = [
     "pkg/api/errors",
@@ -1332,9 +1393,9 @@
     "third_party/forked/golang/reflect"
   ]
   revision = "103fd098999dc9c0c88536f5c9ad2e5da39373ae"
+  version = "kubernetes-1.11.0"
 
 [[projects]]
-  branch = "release-8.0"
   name = "k8s.io/client-go"
   packages = [
     "discovery",
@@ -1438,10 +1499,10 @@
     "util/jsonpath",
     "util/retry"
   ]
-  revision = "e5bc2a7bbbdf78f2a331b8c23838d1bbb1c6b40a"
+  revision = "7d04d0e2a0a1a4d4a1cd6baa432a2301492e4e65"
+  version = "kubernetes-1.11.0"
 
 [[projects]]
-  branch = "release-1.11"
   name = "k8s.io/code-generator"
   packages = [
     "cmd/client-gen",
@@ -1455,6 +1516,7 @@
     "pkg/util"
   ]
   revision = "6702109cc68eb6fe6350b83e14407c8d7309fd1a"
+  version = "kubernetes-1.11.0"
 
 [[projects]]
   branch = "master"
@@ -1502,9 +1564,11 @@
   revision = "b11cf31b380ba10a99b7c0b900f6a71f1045db45"
 
 [[projects]]
-  branch = "release-1.11"
+  branch = "build_id"
   name = "k8s.io/test-infra"
   packages = [
+    "prow/apis/prowjobs",
+    "prow/apis/prowjobs/v1",
     "prow/clonerefs",
     "prow/commentpruner",
     "prow/config",
@@ -1528,12 +1592,12 @@
     "prow/slack",
     "testgrid/util/gcs"
   ]
-  revision = "6cb3cf67617bf7439fe28b511b9c75459e7f67a8"
+  revision = "544470bf291b172c6d833531cd293d95155ac808"
   source = "https://github.com/jenkins-x/test-infra.git"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a9ccac8a3c365b6787d6f120056b48b87a8b20ef7d145020a0cc412e9769b4d5"
+  inputs-digest = "c5431f694c834c9b533db7deac2c2208c92d611d116f9c6785beaa2fdf40721b"
   solver-name = "gps-cdcl"
   solver-version = 1

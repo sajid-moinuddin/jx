@@ -27,12 +27,12 @@ type Auth struct {
 
 var (
 	createDockerAuthLong = templates.LongDesc(`
-		Creates/updates an entry for secret in the config.json for a given user, host
+		Creates/updates an entry for secret in the Docker config.json for a given user, host
 `)
 
 	createDockerAuthExample = templates.Examples(`
 		# Create/update docker auth entry in the config.json file
-		jx create auth --host "foo.private.docker.registry" --user "foo" --secret "FooDockerHubToken" --email "fakeemail@gmail.com"
+		jx create docker auth --host "foo.private.docker.registry" --user "foo" --secret "FooDockerHubToken" --email "fakeemail@gmail.com"
 	`)
 )
 
@@ -71,10 +71,10 @@ func NewCmdCreateDockerAuth(f Factory, out io.Writer, errOut io.Writer) *cobra.C
 		},
 	}
 
-	cmd.Flags().StringVarP(&options.Host, host, "h", "", "The docker host")
+	cmd.Flags().StringVarP(&options.Host, host, "t", "", "The docker host")
 	cmd.Flags().StringVarP(&options.User, username, "u", "", "The user to associate auth component of config.json")
 	cmd.Flags().StringVarP(&options.Secret, "secret", "s", "", "The secret to associate auth component of config.json")
-	cmd.Flags().StringVarP(&options.Secret, "email", "e", "", "The email to associate auth component of config.json")
+	cmd.Flags().StringVarP(&options.Email, "email", "e", "", "The email to associate auth component of config.json")
 	options.addCommonFlags(cmd)
 	return cmd
 }
@@ -127,6 +127,9 @@ func (o *CreateDockerAuthOptions) Run() error {
 		newConfigData := &Auth{}
 		newConfigData.Auth = b64.StdEncoding.EncodeToString([]byte(o.User + ":" + o.Secret))
 		newConfigData.Email = email
+		if dockerConfig.Auths == nil {
+			dockerConfig.Auths = map[string]*Auth{}
+		}
 		dockerConfig.Auths[o.Host] = newConfigData
 	}
 	secretFromConfig.Data["config.json"], err = json.Marshal(dockerConfig)

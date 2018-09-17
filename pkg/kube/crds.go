@@ -79,7 +79,7 @@ func RegisterEnvironmentRoleBindingCRD(apiClient apiextensionsclientset.Interfac
 		ListKind:   "EnvironmentRoleBindingList",
 		Plural:     "environmentrolebindings",
 		Singular:   "environmentrolebinding",
-		ShortNames: []string{"envrolebindings", "envrb"},
+		ShortNames: []string{"envrolebindings", "envrolebinding", "envrb"},
 	}
 	columns := []v1beta1.CustomResourceColumnDefinition{}
 	return registerCRD(apiClient, name, names, columns)
@@ -244,7 +244,7 @@ func registerCRD(apiClient apiextensionsclientset.Interface, name string, names 
 	return register(apiClient, name, crd)
 }
 
-func register(apiClient apiextensionsclientset.Interface, name string, crd *v1beta1.CustomResourceDefinition ) error {
+func register(apiClient apiextensionsclientset.Interface, name string, crd *v1beta1.CustomResourceDefinition) error {
 	crdResources := apiClient.ApiextensionsV1beta1().CustomResourceDefinitions()
 	old, err := crdResources.Get(name, metav1.GetOptions{})
 	if err == nil {
