@@ -5,23 +5,26 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/jenkins-x/jx/pkg/cloud/amazon"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 	"io"
 
-	"github.com/spf13/cobra"
 	"github.com/aws/aws-sdk-go/service/elbv2"
+	"github.com/spf13/cobra"
 )
 
 type DeleteAwsOptions struct {
 	CommonOptions
 
-	VpcId string
+	VpcId  string
 	Region string
 }
 
-func NewCmdDeleteAws(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
+func NewCmdDeleteAws(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) *cobra.Command {
 	options := &DeleteAwsOptions{
 		CommonOptions: CommonOptions{
 			Factory: f,
+			In:      in,
 			Out:     out,
 			Err:     errOut,
 		},
@@ -45,10 +48,14 @@ func NewCmdDeleteAws(f Factory, out io.Writer, errOut io.Writer) *cobra.Command 
 func (o *DeleteAwsOptions) Run() error {
 	vpcid := o.VpcId
 
-	svc := ec2.New(session.New(&aws.Config{Region: aws.String(o.Region)}))
+	region := o.Region
+	if region == "" {
+		region = amazon.ResolveRegion()
+	}
+	awsRegion := aws.String(region)
 
 	// Delete elastic load balancers assigned to VPC
-	elbSvc :=  elbv2.New(session.New(&aws.Config{Region: aws.String(o.Region)}))
+	elbSvc := elbv2.New(session.New(&aws.Config{Region: awsRegion}))
 	loadBalancers, err := elbSvc.DescribeLoadBalancers(&elbv2.DescribeLoadBalancersInput{})
 	if err != nil {
 		return err
@@ -56,13 +63,16 @@ func (o *DeleteAwsOptions) Run() error {
 	for _, loadBalancer := range loadBalancers.LoadBalancers {
 		if *loadBalancer.VpcId == vpcid {
 			fmt.Printf("Deleting load balancer %s...\n", *loadBalancer.LoadBalancerName)
-			_, err =  elbSvc.DeleteLoadBalancer(&elbv2.DeleteLoadBalancerInput{LoadBalancerArn: loadBalancer.LoadBalancerArn})
+			_, err = elbSvc.DeleteLoadBalancer(&elbv2.DeleteLoadBalancerInput{LoadBalancerArn: loadBalancer.LoadBalancerArn})
 			if err != nil {
 				return err
 			}
 			fmt.Printf("Load balancer %s deleted.\n", *loadBalancer.LoadBalancerName)
 		}
 	}
+
+	// Create generic EC2 service
+	svc := ec2.New(session.New(&aws.Config{Region: awsRegion}))
 
 	// Detached and delete internet gateways associated with given VPC
 	internetGateways, err := svc.DescribeInternetGateways(&ec2.DescribeInternetGatewaysInput{

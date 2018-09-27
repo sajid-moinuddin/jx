@@ -12,6 +12,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 )
 
 var (
@@ -33,11 +34,12 @@ type DeleteJenkinsUserOptions struct {
 }
 
 // NewCmdDeleteJenkinsUser defines the command
-func NewCmdDeleteJenkinsUser(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
+func NewCmdDeleteJenkinsUser(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) *cobra.Command {
 	options := &DeleteJenkinsUserOptions{
 		CreateOptions: CreateOptions{
 			CommonOptions: CommonOptions{
 				Factory: f,
+				In:      in,
 				Out:     out,
 				Err:     errOut,
 			},
@@ -101,7 +103,7 @@ func (o *DeleteJenkinsUserOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleted API tokens for users: %s for git server %s at %s from local settings\n",
+	log.Infof("Deleted API tokens for users: %s for Git server %s at %s from local settings\n",
 		util.ColorInfo(strings.Join(args, ", ")), util.ColorInfo(server.Name), util.ColorInfo(server.URL))
 	return nil
 }

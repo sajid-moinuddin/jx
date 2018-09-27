@@ -73,6 +73,12 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/Netflix/go-expect"
+  packages = ["."]
+  revision = "124a3727487432bebd525aeb4be3e88b003033d7"
+
+[[projects]]
+  branch = "master"
   name = "github.com/Pallinder/go-randomdata"
   packages = ["."]
   revision = "15df0648130a623e418886f81b2aaecd0a00547b"
@@ -144,8 +150,8 @@
     "service/s3",
     "service/sts"
   ]
-  revision = "80ad2657c5ff975b642b1febb11c3fcfd747c057"
-  version = "v1.15.28"
+  revision = "d8ab6d22cfd270ded73e7d59feba528ffd963edd"
+  version = "v1.15.40"
 
 [[projects]]
   name = "github.com/beevik/etree"
@@ -547,6 +553,12 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/hinshun/vt10x"
+  packages = ["."]
+  revision = "d55458df857cfff952e4bf72ce1b567c5a4e141c"
+
+[[projects]]
+  branch = "master"
   name = "github.com/hpcloud/tail"
   packages = [
     ".",
@@ -598,8 +610,11 @@
 [[projects]]
   branch = "master"
   name = "github.com/jenkins-x/golang-jenkins"
-  packages = ["."]
-  revision = "b5ec7e72291c19eeb6a0916609eb359897f6cdf8"
+  packages = [
+    ".",
+    "mocks"
+  ]
+  revision = "65b83ad42314967aecff2cc8a7e75703e91b59b2"
 
 [[projects]]
   name = "github.com/jmespath/go-jmespath"
@@ -611,6 +626,12 @@
   packages = ["."]
   revision = "ab8a2e0c74be9d3be70b3184d9acc634935ded82"
   version = "1.1.4"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/kballard/go-shellquote"
+  packages = ["."]
+  revision = "95032a82bc518f77982ea72343cc1ade730072f0"
 
 [[projects]]
   name = "github.com/kevinburke/ssh_config"
@@ -638,6 +659,12 @@
   name = "github.com/knq/sysutil"
   packages = ["."]
   revision = "0218e141a794643e8c0fa283b9cd076fc0df662d"
+
+[[projects]]
+  name = "github.com/kr/pty"
+  packages = ["."]
+  revision = "fa756f09eeb418bf1cc6268c66ceaad9bb98f598"
+  version = "v1.1.2"
 
 [[projects]]
   name = "github.com/magiconair/properties"
@@ -970,7 +997,7 @@
   branch = "master"
   name = "github.com/wbrefvem/go-bitbucket"
   packages = ["."]
-  revision = "f14ad200310707479f18aa24e078f8c5b5887c85"
+  revision = "1c96061fe622327222f81923e37a44f1a2da6382"
 
 [[projects]]
   branch = "master"
@@ -1200,8 +1227,8 @@
     "core",
     "terminal"
   ]
-  revision = "17861e192dc11fd2f5081df1932c94cce262fa1e"
-  version = "v1.6.1"
+  revision = "f30c5d1830c892f533140f29a1de89141dc217f5"
+  version = "v1.6.2"
 
 [[projects]]
   name = "gopkg.in/inf.v0"
@@ -1598,6 +1625,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c5431f694c834c9b533db7deac2c2208c92d611d116f9c6785beaa2fdf40721b"
+  inputs-digest = "b11014e658937767a29e029381af4afd6ca7e945facb7984b4ece72b7a444e70"
   solver-name = "gps-cdcl"
   solver-version = 1

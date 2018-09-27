@@ -16,7 +16,7 @@ import (
 	kube_mocks "k8s.io/client-go/kubernetes/fake"
 )
 
-func TestRun(t *testing.T) {
+func TestStatusRun(t *testing.T) {
 	t.Parallel()
 
 	// Create a fake node
@@ -97,9 +97,9 @@ func TestRun(t *testing.T) {
 
 	// mock factory
 	factory := cmd_mocks.NewMockFactory()
-	// mock kubernetes interface
+	// mock Kubernetes interface
 	kubernetesInterface := kube_mocks.NewSimpleClientset(node, deployment, service)
-	// Override CreateClient to return mock kubernetes interface
+	// Override CreateClient to return mock Kubernetes interface
 	When(factory.CreateClient()).ThenReturn(kubernetesInterface, "jx-testing", nil)
 
 	// Setup options

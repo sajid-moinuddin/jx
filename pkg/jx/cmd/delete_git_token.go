@@ -10,6 +10,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 )
 
 var (
@@ -31,11 +32,12 @@ type DeleteGitTokenOptions struct {
 }
 
 // NewCmdDeleteGitToken defines the command
-func NewCmdDeleteGitToken(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
+func NewCmdDeleteGitToken(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) *cobra.Command {
 	options := &DeleteGitTokenOptions{
 		CreateOptions: CreateOptions{
 			CommonOptions: CommonOptions{
 				Factory: f,
+				In:      in,
 				Out:     out,
 				Err:     errOut,
 			},
@@ -44,7 +46,7 @@ func NewCmdDeleteGitToken(f Factory, out io.Writer, errOut io.Writer) *cobra.Com
 
 	cmd := &cobra.Command{
 		Use:     "token",
-		Short:   "Deletes one or more api tokens for a user on a git server",
+		Short:   "Deletes one or more api tokens for a user on a Git server",
 		Aliases: []string{"api-token"},
 		Long:    delete_git_token_long,
 		Example: delete_git_token_example,
@@ -85,7 +87,7 @@ func (o *DeleteGitTokenOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleted API tokens for users: %s for git server %s at %s from local settings\n",
+	log.Infof("Deleted API tokens for users: %s for Git server %s at %s from local settings\n",
 		util.ColorInfo(strings.Join(args, ", ")), util.ColorInfo(server.Name), util.ColorInfo(server.URL))
 	return nil
 }
