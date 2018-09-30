@@ -32,6 +32,8 @@ type CreateClusterAWSOptions struct {
 }
 
 type CreateClusterAWSFlags struct {
+	Profile                string
+	Region                 string
 	ClusterName            string
 	NodeCount              string
 	KubeVersion            string
@@ -47,7 +49,7 @@ type CreateClusterAWSFlags struct {
 var (
 	createClusterAWSLong = templates.LongDesc(`
 		This command creates a new Kubernetes cluster on Amazon Web Service (AWS) using kops, installing required local dependencies and provisions the
-		Jenkins X platform
+		Jenkins X platform.
 
 		AWS manages your hosted Kubernetes environment via kops, making it quick and easy to deploy and
 		manage containerized applications without container orchestration expertise. It also eliminates the burden of
@@ -89,12 +91,14 @@ func NewCmdCreateClusterAWS(f Factory, in terminal.FileReader, out terminal.File
 	options.addCreateClusterFlags(cmd)
 	options.addCommonFlags(cmd)
 
+	cmd.Flags().StringVarP(&options.Flags.Profile, "profile", "", "", "AWS profile to use.")
+	cmd.Flags().StringVarP(&options.Flags.Region, "region", "", "", "AWS region to use. Default: "+amazon.DefaultRegion)
 	cmd.Flags().BoolVarP(&options.Flags.UseRBAC, "rbac", "r", true, "whether to enable RBAC on the Kubernetes cluster")
 	cmd.Flags().StringVarP(&options.Flags.ClusterName, optionClusterName, "n", "aws1", "The name of this cluster.")
 	cmd.Flags().StringVarP(&options.Flags.NodeCount, optionNodes, "o", "", "node count")
-	cmd.Flags().StringVarP(&options.Flags.KubeVersion, optionKubernetesVersion, "v", "", "kubernetes version")
+	cmd.Flags().StringVarP(&options.Flags.KubeVersion, optionKubernetesVersion, "v", "", "Kubernetes version")
 	cmd.Flags().StringVarP(&options.Flags.Zones, optionZones, "z", "", "Availability Zones. Defaults to $AWS_AVAILABILITY_ZONES")
-	cmd.Flags().StringVarP(&options.Flags.InsecureDockerRegistry, "insecure-registry", "", "100.64.0.0/10", "The insecure docker registries to allow")
+	cmd.Flags().StringVarP(&options.Flags.InsecureDockerRegistry, "insecure-registry", "", "100.64.0.0/10", "The insecure Docker registries to allow")
 	cmd.Flags().StringVarP(&options.Flags.TerraformDirectory, "terraform", "t", "", "The directory to save Terraform configuration.")
 	cmd.Flags().StringVarP(&options.Flags.NodeSize, "node-size", "", "", "The size of a node in the kops created cluster.")
 	cmd.Flags().StringVarP(&options.Flags.MasterSize, "master-size", "", "", "The size of a master in the kops created cluster.")
@@ -172,7 +176,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 	if zones == "" {
 		return fmt.Errorf("No Availability Zones provided!")
 	}
-	accountId, defaultRegion, err := amazon.GetAccountIDAndRegion()
+	accountId, _, err := amazon.GetAccountIDAndRegion(o.Flags.Profile, o.Flags.Region)
 	if err != nil {
 		return err
 	}
@@ -193,7 +197,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 			bucketName := "kops-state-" + accountId + "-" + string(uuid.NewUUID())
 			log.Infof("Creating S3 bucket %s to store kops state\n", util.ColorInfo(bucketName))
 
-			location, err := amazon.CreateS3Bucket(bucketName, defaultRegion)
+			location, err := amazon.CreateS3Bucket(bucketName, o.Flags.Profile, o.Flags.Region)
 			if err != nil {
 				return err
 			}
@@ -255,7 +259,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 		return err
 	}
 
-	log.Infof("\nKops has created cluster %s it will take a minute or so to startup\n", util.ColorInfo(name))
+	log.Infof("\nkops has created cluster %s it will take a minute or so to startup\n", util.ColorInfo(name))
 	log.Infof("You can check on the status in another terminal via the command: %s\n", util.ColorStatus("kops validate cluster"))
 
 	time.Sleep(5 * time.Second)
@@ -342,7 +346,7 @@ func (o *CreateClusterAWSOptions) modifyClusterConfigJson(json string, insecureR
 		return fmt.Errorf("Failed to write InstanceGroup JSON %s: %s", fileName, err)
 	}
 
-	log.Infof("Updating Cluster configuration to enable insecure docker registries %s\n", util.ColorInfo(insecureRegistries))
+	log.Infof("Updating Cluster configuration to enable insecure Docker registries %s\n", util.ColorInfo(insecureRegistries))
 	err = o.runKops("replace", "-f", fileName)
 	if err != nil {
 		return err

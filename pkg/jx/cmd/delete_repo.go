@@ -78,8 +78,8 @@ func NewCmdDeleteRepo(f Factory, in terminal.FileReader, out terminal.FileWriter
 	cmd.Flags().StringArrayVarP(&options.Repositories, "name", "n", []string{}, "Specify the Git repository names to delete")
 	cmd.Flags().StringVarP(&options.GitHost, "git-host", "g", "", "The Git server host if not using GitHub")
 	cmd.Flags().BoolVarP(&options.GitHub, "github", "", false, "If you wish to pick the repositories from GitHub to import")
-	cmd.Flags().BoolVarP(&options.SelectAll, "all", "a", false, "If selecting projects to import from a Git provider this defaults to selecting them all")
-	cmd.Flags().StringVarP(&options.SelectFilter, "filter", "f", "", "If selecting projects to import from a Git provider this filters the list of repositories")
+	cmd.Flags().BoolVarP(&options.SelectAll, "all", "a", false, "If selecting projects to delete from a Git provider this defaults to selecting them all")
+	cmd.Flags().StringVarP(&options.SelectFilter, "filter", "f", "", "If selecting projects to delete from a Git provider this filters the list of repositories")
 	cmd.Flags().BoolVarP(&options.BatchMode, "batch-mode", "b", false, "Run without being prompted. WARNING! You will not be asked to confirm deletions if you use this flag.")
 	return cmd
 }
@@ -108,7 +108,7 @@ func (o *DeleteRepoOptions) Run() error {
 	if server == nil {
 		return fmt.Errorf("No Git server provided")
 	}
-	userAuth, err := config.PickServerUserAuth(server, "git user name", o.BatchMode, "", o.In, o.Out, o.Err)
+	userAuth, err := config.PickServerUserAuth(server, "Git user name", o.BatchMode, "", o.In, o.Out, o.Err)
 	if err != nil {
 		return err
 	}

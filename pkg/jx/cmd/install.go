@@ -102,7 +102,7 @@ var (
 
 		*RBAC is enabled on the cluster
 
-		*Insecure docker registry is enabled for docker registries running locally inside Kubernetes on the service IP range. See the above documentation for more detail
+		*Insecure Docker registry is enabled for Docker registries running locally inside Kubernetes on the service IP range. See the above documentation for more detail
 
 `)
 
@@ -242,7 +242,7 @@ func (options *InstallOptions) Run() error {
 
 	// configure the helm binary
 	options.Helm().SetHelmBinary(helmBinary)
-	if initOpts.Flags.HelmTemplate {
+	if initOpts.Flags.NoTiller {
 		helmer := options.Helm()
 		helmCli, ok := helmer.(*helm.HelmCLI)
 		if ok && helmCli != nil {
@@ -258,7 +258,7 @@ func (options *InstallOptions) Run() error {
 	}
 
 	dependencies := []string{}
-	if !initOpts.Flags.Tiller {
+	if !initOpts.Flags.RemoteTiller {
 		binDir, err := util.JXBinLocation()
 		if err != nil {
 			return errors.Wrap(err, "reading jx bin location")
@@ -319,7 +319,8 @@ func (options *InstallOptions) Run() error {
 	}
 	options.devNamespace = ns
 
-	err = kube.EnsureNamespaceCreated(client, ns, map[string]string{kube.LabelTeam: ns}, nil)
+	namespaceLabels := map[string]string{kube.LabelTeam: ns, kube.LabelEnvironment: kube.LabelValueDevEnvironment}
+	err = kube.EnsureNamespaceCreated(client, ns, namespaceLabels, nil)
 	if err != nil {
 		return fmt.Errorf("Failed to ensure the namespace %s is created: %s\nIs this an RBAC issue on your cluster?", ns, err)
 	}
@@ -401,7 +402,18 @@ func (options *InstallOptions) Run() error {
 		}
 	}
 
-	if initOpts.Flags.HelmTemplate {
+	callback := func(env *v1.Environment) error {
+		if env.Spec.TeamSettings.KubeProvider == "" {
+			env.Spec.TeamSettings.KubeProvider = options.Flags.Provider
+			log.Infof("Storing the kubernetes provider %s in the TeamSettings\n", env.Spec.TeamSettings.KubeProvider)
+		}
+		return nil
+	}
+	err = options.ModifyDevEnvironment(callback)
+	if err != nil {
+		return err
+	}
+	if initOpts.Flags.NoTiller {
 		callback := func(env *v1.Environment) error {
 			env.Spec.TeamSettings.HelmTemplate = true
 			log.Info("Enabling helm template mode in the TeamSettings\n")
@@ -414,7 +426,7 @@ func (options *InstallOptions) Run() error {
 		initOpts.helm = nil
 	}
 
-	if !initOpts.Flags.Tiller {
+	if !initOpts.Flags.RemoteTiller {
 		err = options.restartLocalTiller()
 		if err != nil {
 			return err
@@ -698,7 +710,7 @@ func (options *InstallOptions) Run() error {
 			return err
 		}
 	}
-	if !initOpts.Flags.Tiller {
+	if !initOpts.Flags.RemoteTiller {
 		callback := func(env *v1.Environment) error {
 			env.Spec.TeamSettings.NoTiller = true
 			log.Info("Disabling the server side use of tiller in the TeamSettings\n")
@@ -1039,7 +1051,7 @@ func (options *InstallOptions) getGitToken() (string, string, error) {
 			return username, os.Getenv(JX_GIT_TOKEN), nil
 		}
 	}
-	log.Infof("Lets set up a git username and API token to be able to perform CI/CD\n\n")
+	log.Infof("Lets set up a Git username and API token to be able to perform CI/CD\n\n")
 	userAuth, err := options.getGitUser("")
 	if err != nil {
 		return "", "", err
@@ -1144,7 +1156,22 @@ func (options *InstallOptions) getGitUser(message string) (*auth.UserAuth, error
 		if userAuth.IsInvalid() {
 			return userAuth, fmt.Errorf("you did not properly define the user authentication")
 		}
+		callback := func(env *v1.Environment) error {
+			teamSettings := &env.Spec.TeamSettings
+			teamSettings.GitServer = url
+			teamSettings.PipelineUsername = userAuth.Username
+			teamSettings.Organisation = options.Owner
+			teamSettings.GitPrivate = options.GitRepositoryOptions.Private
+			return nil
+		}
+		err = options.ModifyDevEnvironment(callback)
+		if err != nil {
+			return userAuth, fmt.Errorf("failed to save team settings %s", err)
+		}
 	}
+	// TODO This API should be refactored/rethought as mixing OO and functional styles is error prone. If choosing an OO style, mutations should be carried out on the object data and then that data should be introspected as the source of truth in the operation. Alternatively, remove object state and pass values in a functional style.
+	options.GitRepositoryOptions.Username = userAuth.Username
+	options.GitRepositoryOptions.ApiToken = userAuth.ApiToken
 	return userAuth, nil
 }
 
@@ -1236,7 +1263,7 @@ func (options *InstallOptions) ensureDefaultStorageClass(client kubernetes.Inter
 	return err
 }
 
-// returns the docker registry string for the given provider
+// returns the Docker registry string for the given provider
 func (options *InstallOptions) dockerRegistryValue() (string, error) {
 	if options.Flags.DockerRegistry != "" {
 		return options.Flags.DockerRegistry, nil
