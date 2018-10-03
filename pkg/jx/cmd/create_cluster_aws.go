@@ -176,7 +176,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 	if zones == "" {
 		return fmt.Errorf("No Availability Zones provided!")
 	}
-	accountId, _, err := amazon.GetAccountIDAndRegion(o.Flags.Profile, o.Flags.Region)
+	accountId, defaultRegion, err := amazon.GetAccountIDAndRegion(o.Flags.Profile, o.Flags.Region)
 	if err != nil {
 		return err
 	}
