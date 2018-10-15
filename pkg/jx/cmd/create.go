@@ -28,7 +28,7 @@ type CreateProjectOptions struct {
 var (
 	create_resources = `Valid resource types include:
 
-	* archetype
+	* archetypej
 	* cluster
 	* env
 	* git
