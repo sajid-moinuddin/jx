@@ -57,7 +57,7 @@ func (o *CommonOptions) createGitProvider(dir string) (*gits.GitRepositoryInfo, 
 		return gitInfo, nil, nil, err
 	}
 	gitKind, err := o.GitServerKind(gitInfo)
-	gitProvider, err := gitInfo.CreateProvider(authConfigSvc, gitKind, o.Git())
+	gitProvider, err := gitInfo.CreateProvider(authConfigSvc, gitKind, o.Git(), o.BatchMode, o.In, o.Out, o.Err)
 	if err != nil {
 		return gitInfo, gitProvider, nil, err
 	}
@@ -227,7 +227,7 @@ func (o *CommonOptions) discoverGitURL(gitConf string) (string, error) {
 }
 
 func addGitRepoOptionsArguments(cmd *cobra.Command, repositoryOptions *gits.GitRepositoryOptions) {
-	cmd.Flags().StringVarP(&repositoryOptions.ServerURL, "git-provider-url", "", "", "The Git server URL to create new Git repositories inside")
+	cmd.Flags().StringVarP(&repositoryOptions.ServerURL, "git-provider-url", "", "https://github.com", "The Git server URL to create new Git repositories inside")
 	cmd.Flags().StringVarP(&repositoryOptions.Username, "git-username", "", "", "The Git username to use for creating new Git repositories")
 	cmd.Flags().StringVarP(&repositoryOptions.ApiToken, "git-api-token", "", "", "The Git API token to use for creating new Git repositories")
 	cmd.Flags().BoolVarP(&repositoryOptions.Private, "git-private", "", false, "Create new Git repositories as private")
@@ -299,5 +299,5 @@ func (o *CommonOptions) gitProviderForGitServerURL(gitServiceUrl string, gitKind
 	if err != nil {
 		return nil, err
 	}
-	return gits.CreateProviderForURL(authConfigSvc, gitKind, gitServiceUrl, o.Git())
+	return gits.CreateProviderForURL(authConfigSvc, gitKind, gitServiceUrl, o.Git(), o.BatchMode, o.In, o.Out, o.Err)
 }

@@ -287,6 +287,25 @@ func (mock *MockGitter) DeleteRemoteBranch(_param0 string, _param1 string, _para
 	return ret0
 }
 
+func (mock *MockGitter) Diff(_param0 string) (string, error) {
+	if mock == nil {
+		panic("mock must not be nil. Use myMock := NewMockGitter().")
+	}
+	params := []pegomock.Param{_param0}
+	result := pegomock.GetGenericMockFrom(mock).Invoke("Diff", params, []reflect.Type{reflect.TypeOf((*string)(nil)).Elem(), reflect.TypeOf((*error)(nil)).Elem()})
+	var ret0 string
+	var ret1 error
+	if len(result) != 0 {
+		if result[0] != nil {
+			ret0 = result[0].(string)
+		}
+		if result[1] != nil {
+			ret1 = result[1].(error)
+		}
+	}
+	return ret0, ret1
+}
+
 func (mock *MockGitter) DiscoverRemoteGitURL(_param0 string) (string, error) {
 	if mock == nil {
 		panic("mock must not be nil. Use myMock := NewMockGitter().")
@@ -342,6 +361,21 @@ func (mock *MockGitter) Email(_param0 string) (string, error) {
 		}
 	}
 	return ret0, ret1
+}
+
+func (mock *MockGitter) FetchBranch(_param0 string, _param1 string, _param2 string) error {
+	if mock == nil {
+		panic("mock must not be nil. Use myMock := NewMockGitter().")
+	}
+	params := []pegomock.Param{_param0, _param1, _param2}
+	result := pegomock.GetGenericMockFrom(mock).Invoke("FetchBranch", params, []reflect.Type{reflect.TypeOf((*error)(nil)).Elem()})
+	var ret0 error
+	if len(result) != 0 {
+		if result[0] != nil {
+			ret0 = result[0].(error)
+		}
+	}
+	return ret0
 }
 
 func (mock *MockGitter) FetchTags(_param0 string) error {
@@ -1498,6 +1532,33 @@ func (c *Gitter_DeleteRemoteBranch_OngoingVerification) GetAllCapturedArguments(
 	return
 }
 
+func (verifier *VerifierGitter) Diff(_param0 string) *Gitter_Diff_OngoingVerification {
+	params := []pegomock.Param{_param0}
+	methodInvocations := pegomock.GetGenericMockFrom(verifier.mock).Verify(verifier.inOrderContext, verifier.invocationCountMatcher, "Diff", params)
+	return &Gitter_Diff_OngoingVerification{mock: verifier.mock, methodInvocations: methodInvocations}
+}
+
+type Gitter_Diff_OngoingVerification struct {
+	mock              *MockGitter
+	methodInvocations []pegomock.MethodInvocation
+}
+
+func (c *Gitter_Diff_OngoingVerification) GetCapturedArguments() string {
+	_param0 := c.GetAllCapturedArguments()
+	return _param0[len(_param0)-1]
+}
+
+func (c *Gitter_Diff_OngoingVerification) GetAllCapturedArguments() (_param0 []string) {
+	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
+	if len(params) > 0 {
+		_param0 = make([]string, len(params[0]))
+		for u, param := range params[0] {
+			_param0[u] = param.(string)
+		}
+	}
+	return
+}
+
 func (verifier *VerifierGitter) DiscoverRemoteGitURL(_param0 string) *Gitter_DiscoverRemoteGitURL_OngoingVerification {
 	params := []pegomock.Param{_param0}
 	methodInvocations := pegomock.GetGenericMockFrom(verifier.mock).Verify(verifier.inOrderContext, verifier.invocationCountMatcher, "DiscoverRemoteGitURL", params)
@@ -1574,6 +1635,41 @@ func (c *Gitter_Email_OngoingVerification) GetAllCapturedArguments() (_param0 []
 		_param0 = make([]string, len(params[0]))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
+		}
+	}
+	return
+}
+
+func (verifier *VerifierGitter) FetchBranch(_param0 string, _param1 string, _param2 string) *Gitter_FetchBranch_OngoingVerification {
+	params := []pegomock.Param{_param0, _param1, _param2}
+	methodInvocations := pegomock.GetGenericMockFrom(verifier.mock).Verify(verifier.inOrderContext, verifier.invocationCountMatcher, "FetchBranch", params)
+	return &Gitter_FetchBranch_OngoingVerification{mock: verifier.mock, methodInvocations: methodInvocations}
+}
+
+type Gitter_FetchBranch_OngoingVerification struct {
+	mock              *MockGitter
+	methodInvocations []pegomock.MethodInvocation
+}
+
+func (c *Gitter_FetchBranch_OngoingVerification) GetCapturedArguments() (string, string, string) {
+	_param0, _param1, _param2 := c.GetAllCapturedArguments()
+	return _param0[len(_param0)-1], _param1[len(_param1)-1], _param2[len(_param2)-1]
+}
+
+func (c *Gitter_FetchBranch_OngoingVerification) GetAllCapturedArguments() (_param0 []string, _param1 []string, _param2 []string) {
+	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
+	if len(params) > 0 {
+		_param0 = make([]string, len(params[0]))
+		for u, param := range params[0] {
+			_param0[u] = param.(string)
+		}
+		_param1 = make([]string, len(params[1]))
+		for u, param := range params[1] {
+			_param1[u] = param.(string)
+		}
+		_param2 = make([]string, len(params[2]))
+		for u, param := range params[2] {
+			_param2[u] = param.(string)
 		}
 	}
 	return

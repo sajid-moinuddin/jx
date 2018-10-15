@@ -24,6 +24,7 @@ debug
 
 .vscode/
 
+/build/
 build/
 release/
 scanning/
@@ -31,4 +32,10 @@ scanning/
 .terraform/
 myvalues.yaml
 myvalues.yml
+
+# vim swap files
+*.swp
+
+vendor/**
+
 .project

@@ -1,8 +1,10 @@
 package cmd
 
 import (
-	"github.com/stoewer/go-strcase"
+	"fmt"
 	"io"
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
@@ -32,6 +34,8 @@ var (
 `)
 )
 
+const extensionsConfigDefaultFile = "jenkins-x-extensions.yaml"
+
 func NewCmdStepPreExtend(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) *cobra.Command {
 	options := StepPreExtendOptions{
 		StepOptions: StepOptions{
@@ -59,15 +63,23 @@ func NewCmdStepPreExtend(f Factory, in terminal.FileReader, out terminal.FileWri
 }
 
 func (o *StepPreExtendOptions) Run() error {
-
-	f := o.Factory
-	client, ns, err := f.CreateJXClient()
+	// This will cause o.devNamespace to be populated
+	client, ns, err := o.JXClientAndDevNamespace()
 	if err != nil {
-		return errors.Wrap(err, "cannot create the JX client")
+		return err
+	}
+
+	apisClient, err := o.CreateApiExtensionsClient()
+	if err != nil {
+		return err
+	}
+	err = kube.RegisterExtensionCRD(apisClient)
+	if err != nil {
+		return err
 	}
 
 	extensionsClient := client.JenkinsV1().Extensions(ns)
-	repoExtensions, err := (&kube.ExtensionsConfig{}).LoadFromFile()
+	repoExtensions, err := (&jenkinsv1.ExtensionConfigList{}).LoadFromFile(extensionsConfigDefaultFile)
 	if err != nil {
 		return err
 	}
@@ -76,8 +88,10 @@ func (o *StepPreExtendOptions) Run() error {
 		return err
 	}
 	availableExtensionsNames := []string{}
+	availableExtensionsUUIDLookup := make(map[string]jenkinsv1.ExtensionSpec, 0)
 	for _, ae := range availableExtensions.Items {
 		availableExtensionsNames = append(availableExtensionsNames, ae.Name)
+		availableExtensionsUUIDLookup[ae.Spec.UUID] = ae.Spec
 	}
 
 	if len(repoExtensions.Extensions) > 0 {
@@ -116,28 +130,17 @@ func (o *StepPreExtendOptions) Run() error {
 			if err != nil {
 				return err
 			}
-			for k, v := range repoExtensions.Extensions {
-				e, err := extensionsClient.Get(strcase.KebabCase(k), metav1.GetOptions{})
+			for _, v := range repoExtensions.Extensions {
+				e, err := extensionsClient.Get(v.FullyQualifiedKebabName(), metav1.GetOptions{})
 				if err != nil {
 					// Extension can't be found
-					log.Infof("Extension %s applied but cannot be found in this Jenkins X installation. Available extensions are %s", e.Name, availableExtensionsNames)
+					log.Infof("Extension %s applied but cannot be found in this Jenkins X installation. Available extensions are %s\n", util.ColorInfo(fmt.Sprintf("%s", v.FullyQualifiedName())), util.ColorInfo(availableExtensionsNames))
 				} else {
-					if o.Verbose {
-						log.Infof("Adding extension %s", util.ColorInfo(e.Name))
+					result, err := o.walk(e.Spec, availableExtensionsUUIDLookup, v.Parameters, 0)
+					if err != nil {
+						return err
 					}
-
-					if o.Contains(e.Spec.When, jenkinsv1.ExtensionWhenPost) || len(e.Spec.When) == 0 {
-
-						if a.Spec.PostExtensions == nil {
-							a.Spec.PostExtensions = map[string]jenkinsv1.ExecutableExtension{}
-						}
-						ext, envVarsFormatted, err := e.Spec.ToExecutable(v.Parameters)
-						if err != nil {
-							return err
-						}
-						a.Spec.PostExtensions[e.Name] = ext
-						log.Infof("Adding Extension %s version %s to pipeline with environment variables [ %s ]\n", util.ColorInfo(e.Spec.Name), util.ColorInfo(e.Spec.Version), util.ColorInfo(envVarsFormatted))
-					}
+					a.Spec.PostExtensions = result
 				}
 			}
 			a, err = activities.Update(a)
@@ -149,11 +152,44 @@ func (o *StepPreExtendOptions) Run() error {
 	return nil
 }
 
-func (o *StepPreExtendOptions) Contains(whens []jenkinsv1.ExtensionWhen, when jenkinsv1.ExtensionWhen) bool {
-	for _, w := range whens {
-		if when == w {
-			return true
+func (o *StepPreExtendOptions) walk(extension jenkinsv1.ExtensionSpec, lookup map[string]jenkinsv1.ExtensionSpec, parameters []jenkinsv1.ExtensionParameterValue, depth int) (extensions []jenkinsv1.ExtensionExecution, err error) {
+	result := make([]jenkinsv1.ExtensionExecution, 0)
+	if len(extension.Children) > 0 {
+		if depth > 0 {
+			indent := ((depth - 1) * 2) + 7
+			log.Infof("%s└ %s version %s\n", strings.Repeat(" ", indent), util.ColorInfo(extension.FullyQualifiedName()), util.ColorInfo(extension.Version))
+		} else {
+			log.Infof("Adding %s version %s to pipeline\n", util.ColorInfo(extension.FullyQualifiedName()), util.ColorInfo(extension.Version))
+		}
+		for _, childRef := range extension.Children {
+			if child, ok := lookup[childRef]; ok {
+				children, err := o.walk(child, lookup, parameters, depth+1)
+				if err != nil {
+					return result, err
+				}
+				result = append(result, children...)
+			} else {
+				errors.New(fmt.Sprintf("Unable to locate extension %s", childRef))
+			}
+		}
+	} else {
+		if extension.IsPost() {
+			ext, envVarsFormatted, err := extension.ToExecutable(parameters, o.devNamespace)
+			if err != nil {
+				return result, err
+			}
+			envVarsStr := ""
+			if len(envVarsFormatted) > 0 {
+				envVarsStr = fmt.Sprintf("with environment variables [ %s ]", util.ColorInfo(envVarsFormatted))
+			}
+			if depth > 0 {
+				indent := ((depth - 1) * 2) + 7
+				log.Infof("%s└ %s version %s %s\n", strings.Repeat(" ", indent), util.ColorInfo(extension.FullyQualifiedName()), util.ColorInfo(extension.Version), envVarsStr)
+			} else {
+				log.Infof("Adding %s version %s to pipeline %s\n", util.ColorInfo(extension.FullyQualifiedName()), util.ColorInfo(extension.Version), envVarsStr)
+			}
+			result = append(result, ext)
 		}
 	}
-	return false
+	return result, nil
 }

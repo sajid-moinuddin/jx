@@ -1,12 +1,17 @@
 package binaries
 
 import (
+	"fmt"
+	"github.com/jenkins-x/jx/pkg/log"
+	"github.com/jenkins-x/jx/pkg/util"
 	"os/exec"
 	"runtime"
+
+	"github.com/pkg/errors"
 )
 
-const EksctlVersion = "0.1.3"
-
+const EksctlVersion = "0.1.5"
+const IBMCloudVersion = "0.10.1"
 const HeptioAuthenticatorAwsVersion = "1.10.3"
 
 func BinaryWithExtension(binary string) string {
@@ -38,12 +43,12 @@ func ShouldInstallBinary(binary string, expectedVersion string, versionExtractor
 
 	binaryPath, err := LookupForBinary(binary)
 	if err != nil {
-		return true, err
+		return true, errors.Wrap(err, "looking up the binary")
 	}
 	if binaryPath != "" {
 		currentVersion, err := versionExtractor.extractVersion(binaryPath, versionExtractor.arguments())
 		if err != nil {
-			return true, err
+			return true, errors.Wrap(err, "extracting the version")
 		}
 		if currentVersion == expectedVersion {
 			return false, nil
@@ -51,4 +56,14 @@ func ShouldInstallBinary(binary string, expectedVersion string, versionExtractor
 
 	}
 	return true, nil
+}
+
+func DownloadFile(clientURL string, fullPath string) error {
+	log.Infof("Downloading %s to %s...\n", util.ColorInfo(clientURL), util.ColorInfo(fullPath))
+	err := util.DownloadFile(fullPath, clientURL)
+	if err != nil {
+		return fmt.Errorf("Unable to download file %s from %s due to: %v", fullPath, clientURL, err)
+	}
+	log.Infof("Downloaded %s\n", util.ColorInfo(fullPath))
+	return nil
 }

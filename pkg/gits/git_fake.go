@@ -307,6 +307,10 @@ func (g *GitFake) ConvertToValidBranchName(name string) string {
 	return buffer.String()
 }
 
+func (g *GitFake) FetchBranch(dir string, repo string, refspec string) error {
+	return nil
+}
+
 func (g *GitFake) Stash(dir string) error {
 	return nil
 }
@@ -395,4 +399,8 @@ func (g *GitFake) GetRevisionBeforeDate(dir string, t time.Time) (string, error)
 
 func (g *GitFake) GetRevisionBeforeDateText(dir string, dateText string) (string, error) {
 	return g.Revision, nil
+}
+
+func (g *GitFake) Diff(dir string) (string, error) {
+	return "", nil
 }
