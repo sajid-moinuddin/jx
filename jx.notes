@@ -8,10 +8,7 @@ jx install --provider=kubernetes --external-ip 10.22.3.137 --ingress-service=def
 ./jxDebug create cluster aws -n fox1 --master-size t2.medium --node-size=t2.large --default-admin-password='f0x5p0rt5'
 
 
-./jxDebug install --provider='aws'  --verbose=true \
---default-admin-password='f0x5p0rt5' \
---git-username='sajid2045' --git-api-token='hkjpPFvmUQJjsxvQ8mRJ'  \
---git-provider-url='https://bitbucket.org/'
+
 
 kops create cluster  --name kube.pipre.org --zones us-east-1d --target direct --admin-access 58.173.72.150/32 --master-size t2.small --node-size=t2.large --node-volume-size=32 --yes
 
